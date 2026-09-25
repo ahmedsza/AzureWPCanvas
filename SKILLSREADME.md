@@ -6,9 +6,7 @@ The skill definition is in [.github/skills/wordpress-waf-review/SKILL.md](.githu
 
 ## Quickstart
 
-The fastest way to try the skill is with the sanitized collector ZIP included in this repository. This assumes the user has already extracted the data from the powershell ZIP to a directory
-
-
+Run the skill against an existing collector output directory that contains `collection-manifest.json`. If you do not already have evidence, collect it first with `Review/PSScripts/Invoke-CollectWordPressPosture.ps1`.
 
 ### 1. Run the skill in Copilot Chat
 
@@ -19,13 +17,17 @@ Run the wordpress-waf-review skill using evidence in <DIRECTORY WHERE THE EXTRAC
 Write all reports and the PowerPoint deck to the default output directory.
 ```
 
-The skill reads the evidence, assesses all 157 checklist controls, and writes the result to an output directory
-
-
+The skill reads the evidence, assesses all 157 checklist controls, and writes the result to `Review/reports/<evidence-folder-name>-reports/` unless you request another output directory.
 
 The output directory contains `executive-summary.md`, `detailed-well-architected-review.md`, `findings.csv`, and `well-architected-review.pptx`. 
 
 ### 2. Open the interactive dashboard (only applies to GitHub Copilot App)
+
+To see the full process visually before or during the review, open the workflow canvas:
+
+```text
+Open the WAF review workflow canvas for this resource group and subscription.
+```
 
 After report generation, ask Copilot Chat:
 
@@ -33,10 +35,7 @@ After report generation, ask Copilot Chat:
 Open the WAF review dashboard for the output directory containing the generated reports.
 ```
 
-The `waf-review-dashboard` canvas visualizes the scorecard, pillars, findings, controls, remediation plan, and collection gaps in the GitHub Copilot app.
-
-### Sample
-Check out the sample directory in [Samples/OutputReport](Samples/OutputReport/) to see the expected output structure and content.
+The `waf-review-workflow` canvas guides the process end to end as an eight-state sequence diagram with manual or automatic execution modes. It validates local prerequisites, helps select the Azure subscription and resource group, pre-assesses the resource inventory, runs collection and extraction steps, then prepares the skill prompt. The `waf-review-dashboard` canvas visualizes the scorecard, pillars, findings, controls, remediation plan, and collection gaps in the GitHub Copilot app.
 
 ## When to use it
 
@@ -140,4 +139,5 @@ Scores are always presented with evidence coverage. The reports never reproduce 
 - [Review/README.md](Review/README.md) explains evidence collection and collector output.
 - [.github/skills/wordpress-waf-review/references/AzureWordPressChecklist.md](.github/skills/wordpress-waf-review/references/AzureWordPressChecklist.md) is the bundled assessment checklist.
 - [.github/skills/wordpress-waf-review/references/presentation-template.md](.github/skills/wordpress-waf-review/references/presentation-template.md) defines the deck structure and QA requirements.
-- [Review/genreport.md](Review/genreport.md) contains the original report-generation prompt reference.
+- [.github/extensions/waf-review-workflow/README.md](.github/extensions/waf-review-workflow/README.md) explains the guided workflow canvas.
+- [.github/extensions/waf-review-dashboard/README.md](.github/extensions/waf-review-dashboard/README.md) explains the interactive dashboard canvas.

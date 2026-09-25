@@ -1,0 +1,362 @@
+{
+  "subscription": "5e8eb071-5103-4178-b2bc-417cf42def4d",
+  "resourceGroup": "ahms-wg-dev-rg",
+  "location": "southafricanorth",
+  "resourceCount": 37,
+  "resourceTypes": [
+    {
+      "type": "Microsoft.Network/privateEndpoints",
+      "count": 4
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "count": 4
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones",
+      "count": 4
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "count": 4
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "count": 3
+    },
+    {
+      "type": "microsoft.alertsmanagement/smartDetectorAlertRules",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.Network/frontdoorWebApplicationFirewallPolicies",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.Web/serverFarms",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.EventGrid/systemTopics",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.DBforMySQL/flexibleServers",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.Communication/EmailServices/Domains",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.Communication/EmailServices",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.Communication/CommunicationServices",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.Cdn/profiles/afdendpoints",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.Cdn/profiles",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.Cache/redisEnterprise",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults",
+      "count": 1
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "count": 1
+    }
+  ],
+  "resources": [
+    {
+      "name": "Failure Anomalies - wordpressexampledevappiswpsfsjvczhhe",
+      "type": "microsoft.alertsmanagement/smartDetectorAlertRules",
+      "location": "global",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/microsoft.alertsmanagement/smartDetectorAlertRules/Failure Anomalies - wordpressexampledevappiswpsfsjvczhhe"
+    },
+    {
+      "name": "wordpressexampledevredisswpsfsjvczhhe",
+      "type": "Microsoft.Cache/redisEnterprise",
+      "location": "southafricanorth",
+      "kind": "v2",
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Cache/redisEnterprise/wordpressexampledevredisswpsfsjvczhhe"
+    },
+    {
+      "name": "wordpress-example-dev-afd",
+      "type": "Microsoft.Cdn/profiles",
+      "location": "global",
+      "kind": "frontdoor",
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Cdn/profiles/wordpress-example-dev-afd"
+    },
+    {
+      "name": "wordpress-example-dev-afd/wordpressexampledevafdswpsfsjvczhhe",
+      "type": "Microsoft.Cdn/profiles/afdendpoints",
+      "location": "global",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Cdn/profiles/wordpress-example-dev-afd/afdendpoints/wordpressexampledevafdswpsfsjvczhhe"
+    },
+    {
+      "name": "wordpress-example-dev-acs-swpsfsjvczhhe",
+      "type": "Microsoft.Communication/CommunicationServices",
+      "location": "global",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Communication/CommunicationServices/wordpress-example-dev-acs-swpsfsjvczhhe"
+    },
+    {
+      "name": "wordpress-example-dev-email-acs-swpsfsjvczhhe",
+      "type": "Microsoft.Communication/EmailServices",
+      "location": "global",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Communication/EmailServices/wordpress-example-dev-email-acs-swpsfsjvczhhe"
+    },
+    {
+      "name": "wordpress-example-dev-email-acs-swpsfsjvczhhe/AzureManagedDomain",
+      "type": "Microsoft.Communication/EmailServices/Domains",
+      "location": "global",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Communication/EmailServices/wordpress-example-dev-email-acs-swpsfsjvczhhe/Domains/AzureManagedDomain"
+    },
+    {
+      "name": "wordpress-example-dev-mysql-swpsfsjvczhhe",
+      "type": "Microsoft.DBforMySQL/flexibleServers",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.DBforMySQL/flexibleServers/wordpress-example-dev-mysql-swpsfsjvczhhe"
+    },
+    {
+      "name": "wordpressexswpsfsjvczhhe-f5ea0c51-8c23-4282-a54f-2ba70b6a792c",
+      "type": "Microsoft.EventGrid/systemTopics",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.EventGrid/systemTopics/wordpressexswpsfsjvczhhe-f5ea0c51-8c23-4282-a54f-2ba70b6a792c"
+    },
+    {
+      "name": "wordpressexampledevappiswpsfsjvczhhe",
+      "type": "Microsoft.Insights/components",
+      "location": "southafricanorth",
+      "kind": "web",
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Insights/components/wordpressexampledevappiswpsfsjvczhhe"
+    },
+    {
+      "name": "kv-wordp-dev-bzrupj5rt6",
+      "type": "Microsoft.KeyVault/vaults",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.KeyVault/vaults/kv-wordp-dev-bzrupj5rt6"
+    },
+    {
+      "name": "wordpress-example-dev-identity",
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/wordpress-example-dev-identity"
+    },
+    {
+      "name": "wordpressexampledevwaf",
+      "type": "Microsoft.Network/frontdoorWebApplicationFirewallPolicies",
+      "location": "global",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/frontdoorWebApplicationFirewallPolicies/wordpressexampledevwaf"
+    },
+    {
+      "name": "kv-wordp-dev-bzrupj5rt6-pe.nic.eb2ea48f-67f5-4f6e-9e8c-3e9c29285393",
+      "type": "Microsoft.Network/networkInterfaces",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/networkInterfaces/kv-wordp-dev-bzrupj5rt6-pe.nic.eb2ea48f-67f5-4f6e-9e8c-3e9c29285393"
+    },
+    {
+      "name": "wordpress-example-dev-mysql-swpsfsjvczhhe-p.nic.da52adff-8be3-4e4b-b958-ecb5ed695018",
+      "type": "Microsoft.Network/networkInterfaces",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/networkInterfaces/wordpress-example-dev-mysql-swpsfsjvczhhe-p.nic.da52adff-8be3-4e4b-b958-ecb5ed695018"
+    },
+    {
+      "name": "wordpressexampledevredisswpsfsjvczhhe-pe.nic.e3ec3249-6244-441f-b039-45ece9a7a479",
+      "type": "Microsoft.Network/networkInterfaces",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/networkInterfaces/wordpressexampledevredisswpsfsjvczhhe-pe.nic.e3ec3249-6244-441f-b039-45ece9a7a479"
+    },
+    {
+      "name": "wordpressexswpsfsjvczhhe-blob-pe.nic.14249857-8924-48bf-878d-1b69470c4f11",
+      "type": "Microsoft.Network/networkInterfaces",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/networkInterfaces/wordpressexswpsfsjvczhhe-blob-pe.nic.14249857-8924-48bf-878d-1b69470c4f11"
+    },
+    {
+      "name": "wordpress-example-dev-vnet-wordpress-example-dev-appsubnet-nsg-southafricanorth",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/networkSecurityGroups/wordpress-example-dev-vnet-wordpress-example-dev-appsubnet-nsg-southafricanorth"
+    },
+    {
+      "name": "wordpress-example-dev-vnet-wordpress-example-dev-dbsubnet-nsg-southafricanorth",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/networkSecurityGroups/wordpress-example-dev-vnet-wordpress-example-dev-dbsubnet-nsg-southafricanorth"
+    },
+    {
+      "name": "wordpress-example-dev-vnet-wordpress-example-dev-pesubnet-nsg-southafricanorth",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/networkSecurityGroups/wordpress-example-dev-vnet-wordpress-example-dev-pesubnet-nsg-southafricanorth"
+    },
+    {
+      "name": "privatelink.blob.core.windows.net",
+      "type": "Microsoft.Network/privateDnsZones",
+      "location": "global",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net"
+    },
+    {
+      "name": "privatelink.mysql.database.azure.com",
+      "type": "Microsoft.Network/privateDnsZones",
+      "location": "global",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/privateDnsZones/privatelink.mysql.database.azure.com"
+    },
+    {
+      "name": "privatelink.redis.azure.net",
+      "type": "Microsoft.Network/privateDnsZones",
+      "location": "global",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/privateDnsZones/privatelink.redis.azure.net"
+    },
+    {
+      "name": "privatelink.vaultcore.azure.net",
+      "type": "Microsoft.Network/privateDnsZones",
+      "location": "global",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net"
+    },
+    {
+      "name": "privatelink.blob.core.windows.net/wordpress-example-dev-vnet-link",
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "location": "global",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net/virtualNetworkLinks/wordpress-example-dev-vnet-link"
+    },
+    {
+      "name": "privatelink.mysql.database.azure.com/wordpress-example-dev-vnet-link",
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "location": "global",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/privateDnsZones/privatelink.mysql.database.azure.com/virtualNetworkLinks/wordpress-example-dev-vnet-link"
+    },
+    {
+      "name": "privatelink.redis.azure.net/wordpress-example-dev-vnet-link",
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "location": "global",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/privateDnsZones/privatelink.redis.azure.net/virtualNetworkLinks/wordpress-example-dev-vnet-link"
+    },
+    {
+      "name": "privatelink.vaultcore.azure.net/wordpress-example-dev-vnet-link",
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "location": "global",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net/virtualNetworkLinks/wordpress-example-dev-vnet-link"
+    },
+    {
+      "name": "kv-wordp-dev-bzrupj5rt6-pe",
+      "type": "Microsoft.Network/privateEndpoints",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/privateEndpoints/kv-wordp-dev-bzrupj5rt6-pe"
+    },
+    {
+      "name": "wordpress-example-dev-mysql-swpsfsjvczhhe-pe",
+      "type": "Microsoft.Network/privateEndpoints",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/privateEndpoints/wordpress-example-dev-mysql-swpsfsjvczhhe-pe"
+    },
+    {
+      "name": "wordpressexampledevredisswpsfsjvczhhe-pe",
+      "type": "Microsoft.Network/privateEndpoints",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/privateEndpoints/wordpressexampledevredisswpsfsjvczhhe-pe"
+    },
+    {
+      "name": "wordpressexswpsfsjvczhhe-blob-pe",
+      "type": "Microsoft.Network/privateEndpoints",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/privateEndpoints/wordpressexswpsfsjvczhhe-blob-pe"
+    },
+    {
+      "name": "wordpress-example-dev-vnet",
+      "type": "Microsoft.Network/virtualNetworks",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Network/virtualNetworks/wordpress-example-dev-vnet"
+    },
+    {
+      "name": "wordpressexampledevlawswpsfsjvczhhe",
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "location": "southafricanorth",
+      "kind": null,
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.OperationalInsights/workspaces/wordpressexampledevlawswpsfsjvczhhe"
+    },
+    {
+      "name": "wordpressexswpsfsjvczhhe",
+      "type": "Microsoft.Storage/storageAccounts",
+      "location": "southafricanorth",
+      "kind": "StorageV2",
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Storage/storageAccounts/wordpressexswpsfsjvczhhe"
+    },
+    {
+      "name": "asp-wordpress-example-dev-swpsfsjvczhhe",
+      "type": "Microsoft.Web/serverFarms",
+      "location": "southafricanorth",
+      "kind": "linux",
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Web/serverFarms/asp-wordpress-example-dev-swpsfsjvczhhe"
+    },
+    {
+      "name": "wordpressexampledev-wp-dev-swpsfsjvczhhe",
+      "type": "Microsoft.Web/sites",
+      "location": "southafricanorth",
+      "kind": "app,linux",
+      "id": "/subscriptions/5e8eb071-5103-4178-b2bc-417cf42def4d/resourceGroups/ahms-wg-dev-rg/providers/Microsoft.Web/sites/wordpressexampledev-wp-dev-swpsfsjvczhhe"
+    }
+  ],
+  "generatedAtUtc": "2026-09-25T13:28:18.1166496Z"
+}

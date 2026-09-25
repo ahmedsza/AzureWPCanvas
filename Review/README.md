@@ -2,7 +2,7 @@
 
 This folder collects redacted configuration evidence for a WordPress workload hosted on Azure Linux App Service, then uses that evidence to drive a manual or Copilot-assisted Azure Well-Architected review, with emphasis on Security and Reliability.
 
-The collector accepts one resource group, inventories every resource in it, and then captures service-specific evidence for the WordPress topology deployed by the Azure WordPress Bicep sample: App Service Plan, App Service and slots, MySQL Flexible Server, Key Vault, Redis, NAT Gateway, Azure Front Door/WAF, Storage, Azure Communication Services, Application Insights, Log Analytics, and supporting network resources.
+The collector accepts one resource group, inventories every resource in it, and then captures service-specific evidence for supported WordPress on Azure App Service topologies: App Service Plan, App Service and slots, MySQL Flexible Server, Key Vault, Redis, NAT Gateway, Azure Front Door/WAF, Storage, Azure Communication Services, Application Insights, Log Analytics, and supporting network resources.
 
 ## Contents
 
@@ -10,13 +10,13 @@ The collector accepts one resource group, inventories every resource in it, and 
 PSScripts/
   Invoke-CollectWordPressPosture.ps1   # Entry point: run this to collect evidence
   Common-AzureCollector.ps1            # Shared helpers (az CLI wrapper, redaction, document/manifest helpers)
+  Test-WafReviewPrerequisites.ps1      # Workflow helper: validates local prerequisites
+  Get-WafReviewAzureScope.ps1          # Workflow helper: lists subscriptions and resource groups
+  Get-WafReviewResourceInventory.ps1   # Workflow helper: pre-assessment resource inventory
   Get-*.ps1                            # One collector per resource type, invoked automatically by the entry point
-reviewdocs/
-  AzureWordPressChecklist.md           # Canonical WAF review checklist for this workload (start here)
-genreport.md                           # Original report-generation prompt, superseded by the wordpress-waf-review skill
 ```
 
-[reviewdocs/AzureWordPressChecklist.md](reviewdocs/AzureWordPressChecklist.md) is the single, definitive checklist for this workload. It consolidates and supersedes three earlier checklists (`wordpresschecklist.md`, `checklist.md`, and `WAF-WordPress-AppService-Checklist.md`) that are no longer kept in this folder; the checklist's own cross-references to those files are historical.
+The canonical checklist, evidence map, scoring rubric, report templates, and presentation template now live with the project skill under [.github/skills/wordpress-waf-review/references/](../.github/skills/wordpress-waf-review/references/).
 
 ## Prerequisites
 
@@ -72,7 +72,7 @@ There is no automated test suite for the collectors in this folder; validate a r
 
 ## Generate a report from the evidence
 
-Once a collection run completes, use the `wordpress-waf-review` skill in VS Code Chat to turn the collector JSON and [reviewdocs/AzureWordPressChecklist.md](reviewdocs/AzureWordPressChecklist.md) into a scored Well-Architected review:
+Once a collection run completes, use the `wordpress-waf-review` skill in VS Code Chat to turn the collector JSON and the bundled [AzureWordPressChecklist.md](../.github/skills/wordpress-waf-review/references/AzureWordPressChecklist.md) into a scored Well-Architected review:
 
 ```
 /wordpress-waf-review <path-to-collector-output-directory>
