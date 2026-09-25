@@ -1,0 +1,5 @@
+[CmdletBinding()] param([string]$ResourceName,[string]$ResourceType,[Parameter(Mandatory)][string]$ResourceGroup,[Parameter(Mandatory)][string]$OutputDirectory,[string]$Subscription)
+. (Join-Path $PSScriptRoot 'Common-AzureCollector.ps1'); $doc=New-CollectorDocument $ResourceType $ResourceName $ResourceGroup $Subscription
+$resource=Invoke-AzCommandJson 'resource.show' @('resource','show','--resource-group',$ResourceGroup,'--name',$ResourceName,'--resource-type',$ResourceType) $Subscription -Required; Add-CollectorSection $doc 'show' $resource
+if($ResourceType -ieq 'Microsoft.Cache/Redis'){Add-CollectorSection $doc 'redisShow' (Invoke-AzCommandJson 'redis.show' @('redis','show','--name',$ResourceName,'--resource-group',$ResourceGroup) $Subscription)}
+if($resource.data.id){Add-StandardResourceEvidence $doc $resource.data.id $Subscription};$file=Join-Path $OutputDirectory ('redis-{0}.json' -f (ConvertTo-CollectorSafeFileName $ResourceName));Save-CollectorDocument $doc $file;[pscustomobject]@{resourceType='redis';name=$ResourceName;outputFile=$file}

@@ -1,0 +1,7 @@
+[CmdletBinding()] param([Parameter(Mandatory)][string]$ResourceName,[Parameter(Mandatory)][string]$SlotName,[Parameter(Mandatory)][string]$ResourceGroup,[Parameter(Mandatory)][string]$OutputDirectory,[string]$Subscription)
+. (Join-Path $PSScriptRoot 'Common-AzureCollector.ps1')
+$doc=New-CollectorDocument 'Microsoft.Web/sites/slots' ($ResourceName+'/'+$SlotName) $ResourceGroup $Subscription
+$slot=Invoke-AzCommandJson 'webapp.slot.show' @('webapp','show','--name',$ResourceName,'--slot',$SlotName,'--resource-group',$ResourceGroup) $Subscription -Required; Add-CollectorSection $doc 'show' $slot
+foreach($item in @(@('config','webapp','config','show'),@('appSettings','webapp','config','appsettings','list'),@('connectionStrings','webapp','config','connection-string','list'),@('auth','webapp','auth','show'),@('identity','webapp','identity','show'),@('accessRestrictions','webapp','config','access-restriction','show'))){$args=@($item[1..($item.Count-1)])+@('--name',$ResourceName,'--slot',$SlotName,'--resource-group',$ResourceGroup); Add-CollectorSection $doc $item[0] (Invoke-AzCommandJson ('webapp.slot.'+$item[0]) $args $Subscription)}
+if($slot.data.id){Add-StandardResourceEvidence $doc $slot.data.id $Subscription}; $file=Join-Path $OutputDirectory ('appservice-slot-{0}-{1}.json' -f (ConvertTo-CollectorSafeFileName $ResourceName),(ConvertTo-CollectorSafeFileName $SlotName)); Save-CollectorDocument $doc $file
+[pscustomobject]@{resourceType='appServiceSlot';name=($ResourceName+'/'+$SlotName);outputFile=$file}

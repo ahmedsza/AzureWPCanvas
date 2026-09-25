@@ -1,0 +1,5 @@
+[CmdletBinding()] param([string]$ResourceName,[string]$ResourceType,[Parameter(Mandatory)][string]$ResourceGroup,[Parameter(Mandatory)][string]$OutputDirectory,[string]$Subscription)
+. (Join-Path $PSScriptRoot 'Common-AzureCollector.ps1');$doc=New-CollectorDocument $ResourceType $ResourceName $ResourceGroup $Subscription
+$nat=Invoke-AzCommandJson 'network.nat-gateway.show' @('network','nat','gateway','show','--name',$ResourceName,'--resource-group',$ResourceGroup) $Subscription -Required;Add-CollectorSection $doc 'show' $nat
+Add-CollectorSection $doc 'subnetAssociations' (Invoke-AzCommandJson 'network.vnet.list' @('network','vnet','list','--resource-group',$ResourceGroup,'--query',"[].{name:name,subnets:subnets[?natGateway.id=='$($nat.data.id)']}") $Subscription)
+if($nat.data.id){Add-StandardResourceEvidence $doc $nat.data.id $Subscription};$file=Join-Path $OutputDirectory ('nat-gateway-{0}.json' -f (ConvertTo-CollectorSafeFileName $ResourceName));Save-CollectorDocument $doc $file;[pscustomobject]@{resourceType='natGateway';name=$ResourceName;outputFile=$file}

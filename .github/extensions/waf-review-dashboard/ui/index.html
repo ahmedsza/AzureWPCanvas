@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Well-Architected review dashboard</title>
+        <link rel="stylesheet" href="/styles.css" />
+    </head>
+    <body>
+        <header class="topbar">
+            <div class="topbar-title">
+                <h1 id="workload">Well-Architected review</h1>
+                <p id="subtitle" class="muted">Loading report…</p>
+            </div>
+            <div class="topbar-actions">
+                <label class="picker">
+                    <span class="sr-only">Report directory</span>
+                    <select id="report-picker"></select>
+                </label>
+                <button id="refresh" type="button" title="Re-read the report files from disk">Refresh</button>
+            </div>
+        </header>
+
+        <nav class="tabs" id="tabs" role="tablist"></nav>
+
+        <div id="banner" class="banner" hidden></div>
+
+        <main id="view" class="view" aria-live="polite"></main>
+
+        <aside id="drawer" class="drawer" hidden>
+            <button id="drawer-close" class="drawer-close" type="button" aria-label="Close details">×</button>
+            <div id="drawer-body"></div>
+        </aside>
+        <div id="scrim" class="scrim" hidden></div>
+
+        <script src="/app.js" type="module"></script>
+    </body>
+</html>

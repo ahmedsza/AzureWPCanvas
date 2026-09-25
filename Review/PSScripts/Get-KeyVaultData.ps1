@@ -1,0 +1,7 @@
+[CmdletBinding()] param([string]$ResourceName,[string]$ResourceType,[Parameter(Mandatory)][string]$ResourceGroup,[Parameter(Mandatory)][string]$OutputDirectory,[string]$Subscription)
+. (Join-Path $PSScriptRoot 'Common-AzureCollector.ps1')
+$doc=New-CollectorDocument $ResourceType $ResourceName $ResourceGroup $Subscription
+$vault=Invoke-AzCommandJson 'keyvault.show' @('keyvault','show','--name',$ResourceName,'--resource-group',$ResourceGroup) $Subscription -Required; Add-CollectorSection $doc 'show' $vault
+foreach($item in @(@('keys','keyvault','key','list'),@('secrets','keyvault','secret','list'),@('certificates','keyvault','certificate','list'),@('networkRules','keyvault','network-rule','list','--name',$ResourceName))){$args=@($item[1..($item.Count-1)]);if($item[0] -ne 'networkRules'){$args+=@('--vault-name',$ResourceName)};Add-CollectorSection $doc $item[0] (Invoke-AzCommandJson ('keyvault.'+$item[0]) $args $Subscription)}
+if($vault.data.id){Add-StandardResourceEvidence $doc $vault.data.id $Subscription}; $file=Join-Path $OutputDirectory ('keyvault-{0}.json' -f (ConvertTo-CollectorSafeFileName $ResourceName)); Save-CollectorDocument $doc $file
+[pscustomobject]@{resourceType='keyVault';name=$ResourceName;outputFile=$file}
