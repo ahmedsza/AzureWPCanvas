@@ -239,10 +239,12 @@ function emptyRun(input = {}) {
     const now = new Date().toISOString();
     return {
         runId,
+        name: typeof input.name === "string" ? input.name.trim().slice(0, 80) : "",
+        source: input.source === "upload" ? "upload" : "collect",
         createdAt: input.createdAt || now,
         updatedAt: now,
         input: normalizeInput(input),
-        outputs: {},
+        outputs: input.outputs && typeof input.outputs === "object" ? input.outputs : {},
         logs: [],
         subscriptions: [],
         resourceGroups: [],
@@ -250,8 +252,12 @@ function emptyRun(input = {}) {
 }
 
 function runSummary(run) {
+    const outputs = run.outputs ?? {};
+    const completed = Object.values(outputs).filter((value) => value && value.ok === true).length;
     return {
         runId: run.runId,
+        name: run.name || "",
+        source: run.source === "upload" ? "upload" : "collect",
         createdAt: run.createdAt,
         updatedAt: run.updatedAt,
         subscription: run.input?.subscription || "",
@@ -259,6 +265,8 @@ function runSummary(run) {
         evidenceDir: run.input?.evidenceDir ? relativePath(run.input.evidenceDir) : "",
         reportDir: run.input?.reportDir ? relativePath(run.input.reportDir) : "",
         logCount: run.logs?.length ?? 0,
+        completedSteps: completed,
+        totalSteps: PHASES.length,
     };
 }
 
@@ -342,7 +350,7 @@ function runPowerShell(script, args = [], onLine = () => {}) {
         child.stderr.on("data", (chunk) => {
             const text = chunk.toString();
             stderr += text;
-            for (const line of text.split(/\r?\n/).filter(Boolean)) onLine(line);
+            for (const line of text.split(/\r?\n/).filter(Boolean)) onLine(line, "stderr");
         });
         child.on("error", reject);
         child.on("close", (code) => {
@@ -374,7 +382,7 @@ function runPwshCommand(command, onLine = () => {}) {
         child.stderr.on("data", (chunk) => {
             const text = chunk.toString();
             stderr += text;
-            for (const line of text.split(/\r?\n/).filter(Boolean)) onLine(line);
+            for (const line of text.split(/\r?\n/).filter(Boolean)) onLine(line, "stderr");
         });
         child.on("error", reject);
         child.on("close", (code) => {
@@ -399,7 +407,7 @@ function phaseCommands(input, discovered, outputs) {
         : input.evidenceDir
           ? relativePath(input.evidenceDir)
           : "Evidence\\Extracted\\<collector-folder>";
-    const report = input.reportDir ? relativePath(input.reportDir) : discovered.reports[0]?.label ?? "Review\\reports\\<evidence-folder-name>-reports";
+    const report = input.reportDir ? relativePath(input.reportDir) : (discovered.reports[0]?.label ?? `Review\\reports\\${extracted.split(/[\\/]/).filter(Boolean).at(-1) || "<evidence-folder-name>"}-reports`);
     const context = [
         input.environment ? `This is a ${input.environment} environment.` : null,
         input.rto ? `RTO is ${input.rto}.` : null,
@@ -487,7 +495,26 @@ async function buildDiscovery(input, outputs) {
         for (const file of REPORT_FILES) if (await isFile(path.join(input.reportDir, file))) files.push(file);
         discovered.reports.unshift({ dir: input.reportDir, label: relativePath(input.reportDir), files, complete: files.length === REPORT_FILES.length, modified: null });
     }
+    discovered.reports = matchingRunReports(input, discovered, outputs);
     return discovered;
+}
+
+function runEvidenceName(input, outputs) {
+    const evidenceDir = outputs.prepare_assessment?.evidenceDir || input.evidenceDir || outputs.collect?.outputDirectory || "";
+    return evidenceDir ? path.basename(evidenceDir) : "";
+}
+
+// Reports are only ever attributed to the run whose evidence folder produced
+// them, so a previous run's output never marks a new run's steps complete.
+function matchingRunReports(input, discovered, outputs) {
+    const explicit = input.reportDir ? path.resolve(input.reportDir) : "";
+    const evidenceName = runEvidenceName(input, outputs);
+    return discovered.reports.filter((report) => {
+        const dir = report.dir ? path.resolve(report.dir) : "";
+        if (explicit && dir === explicit) return true;
+        if (!evidenceName) return false;
+        return path.basename(dir || report.label || "").startsWith(evidenceName);
+    });
 }
 
 async function findExtractedEvidence(dir) {
@@ -541,6 +568,24 @@ function readBody(req) {
     });
 }
 
+function readBinaryBody(req, limit = 200 * 1024 * 1024) {
+    return new Promise((resolve, reject) => {
+        const chunks = [];
+        let size = 0;
+        req.on("data", (chunk) => {
+            size += chunk.length;
+            if (size > limit) {
+                req.destroy();
+                reject(new Error("The uploaded file exceeded the 200 MB limit."));
+                return;
+            }
+            chunks.push(chunk);
+        });
+        req.on("error", reject);
+        req.on("end", () => resolve(Buffer.concat(chunks)));
+    });
+}
+
 class WorkflowInstance {
     constructor({ instanceId, input }) {
         this.instanceId = instanceId;
@@ -557,6 +602,7 @@ class WorkflowInstance {
         this.subscriptions = this.currentRun.subscriptions;
         this.resourceGroups = this.currentRun.resourceGroups;
         this.loadedRuns = false;
+        this.view = "launcher";
     }
 
     async loadRuns() {
@@ -574,6 +620,8 @@ class WorkflowInstance {
         this.currentRun = {
             ...emptyRun({ runId: run.runId, createdAt: run.createdAt }),
             ...run,
+            name: typeof run.name === "string" ? run.name : "",
+            source: run.source === "upload" ? "upload" : "collect",
             input: normalizeInput(run.input ?? {}),
             outputs: run.outputs ?? {},
             logs: Array.isArray(run.logs) ? run.logs : [],
@@ -583,6 +631,11 @@ class WorkflowInstance {
         this.input = this.currentRun.input;
         this.outputs = this.currentRun.outputs;
         this.logs = this.currentRun.logs;
+        this.logSeq = 0;
+        for (const entry of this.logs) {
+            this.logSeq += 1;
+            entry.seq = this.logSeq;
+        }
         this.subscriptions = this.currentRun.subscriptions;
         this.resourceGroups = this.currentRun.resourceGroups;
     }
@@ -634,10 +687,69 @@ class WorkflowInstance {
         return this.refresh();
     }
 
-    addLog(phase, message) {
-        this.logs.push({ at: new Date().toISOString(), phase, message: String(message).slice(0, 1000) });
-        this.logs = this.logs.slice(-120);
+    async showLauncher() {
+        await this.loadRuns();
+        this.view = "launcher";
+        return this.refresh();
+    }
+
+    async openRun(runId) {
+        this.view = "workflow";
+        return this.switchRun(runId);
+    }
+
+    async createRun(options = {}) {
+        await this.loadRuns();
+        await this.persistRuns();
+        const source = options.source === "upload" ? "upload" : "collect";
+        const carryForward = {
+            mode: this.input.mode,
+            environment: this.input.environment,
+            rto: this.input.rto,
+            rpo: this.input.rpo,
+        };
+        const nextRun = emptyRun({ ...carryForward, name: options.name, source });
+        if (source === "upload") {
+            const note = "Skipped — collector ZIP supplied from another environment.";
+            for (const key of ["dependencies", "connect", "preassess", "collect", "package"]) {
+                nextRun.outputs[key] = { ok: true, skipped: true, note };
+            }
+        }
+        this.runs.unshift(nextRun);
+        this.useRun(nextRun);
+        this.state = null;
+        this.view = "workflow";
+        this.addLog("workflow", `Started run ${nextRun.runId}${nextRun.name ? ` (${nextRun.name})` : ""} in ${source === "upload" ? "uploaded ZIP" : "full collection"} mode.`);
+        await this.persistRuns();
+        return this.refresh();
+    }
+
+    async saveUploadedZip(filename, buffer) {
+        if (!buffer || buffer.length === 0) throw new CanvasError("upload_empty", "The uploaded ZIP file was empty.");
+        const safeName = path.basename(String(filename || "collector.zip")).replace(/[^A-Za-z0-9._-]/g, "_");
+        const target = outputRoot("Evidence", "Uploaded", this.currentRun.runId);
+        await mkdir(target, { recursive: true });
+        const zipFile = path.join(target, safeName.toLowerCase().endsWith(".zip") ? safeName : `${safeName}.zip`);
+        await writeFile(zipFile, buffer);
+        const note = "Skipped — collector ZIP supplied from another environment.";
+        for (const key of ["dependencies", "connect", "preassess"]) {
+            this.outputs[key] = this.outputs[key] ?? { ok: true, skipped: true, note };
+        }
+        this.outputs.collect = { ok: true, skipped: true, uploaded: true, note, zipFile };
+        this.outputs.package = { ok: true, skipped: true, uploaded: true, note, zipFile };
+        this.addLog("workflow", `Uploaded collector ZIP saved to ${relativePath(zipFile)} (${buffer.length} bytes).`);
+        this.view = "workflow";
+        return this.refresh();
+    }
+
+    addLog(phase, message, level = "info") {
+        const text = String(message);
+        this.logSeq = (this.logSeq ?? 0) + 1;
+        const entry = { seq: this.logSeq, at: new Date().toISOString(), phase, level, message: text.slice(0, 2000) };
+        this.logs.push(entry);
+        this.logs = this.logs.slice(-600);
         this.currentRun.logs = this.logs;
+        this.broadcastLog(entry);
         this.broadcast();
     }
 
@@ -652,6 +764,7 @@ class WorkflowInstance {
         const current = phases.find((phase) => phase.status === "running") ?? phases.find((phase) => phase.status === "current") ?? phases.find((phase) => phase.status === "ready") ?? phases.at(-1);
         this.state = {
             roots,
+            view: this.view,
             mode: this.input.mode,
             context: {
                 ...this.input,
@@ -691,7 +804,7 @@ class WorkflowInstance {
             return;
         }
         try {
-            const result = await runPowerShell("Get-WafReviewAzureScope.ps1", ["-Current"], (line) => this.addLog("connect", line));
+            const result = await runPowerShell("Get-WafReviewAzureScope.ps1", ["-Current"], (line, stream) => this.addLog("connect", line, stream === "stderr" ? "stderr" : "info"));
             const subscription = result.subscription;
             if (subscription?.id) {
                 this.input.subscription = subscription.id;
@@ -708,7 +821,7 @@ class WorkflowInstance {
     }
 
     async listSubscriptions() {
-        const result = await runPowerShell("Get-WafReviewAzureScope.ps1", [], (line) => this.addLog("connect", line));
+        const result = await runPowerShell("Get-WafReviewAzureScope.ps1", [], (line, stream) => this.addLog("connect", line, stream === "stderr" ? "stderr" : "info"));
         this.subscriptions = result.subscriptions ?? [];
         await this.refresh();
         return this.subscriptions;
@@ -717,7 +830,7 @@ class WorkflowInstance {
     async listResourceGroups(subscription) {
         const selected = subscription || this.input.subscription;
         if (!selected) throw new CanvasError("subscription_required", "Select a subscription first.");
-        const result = await runPowerShell("Get-WafReviewAzureScope.ps1", ["-Subscription", selected], (line) => this.addLog("connect", line));
+        const result = await runPowerShell("Get-WafReviewAzureScope.ps1", ["-Subscription", selected], (line, stream) => this.addLog("connect", line, stream === "stderr" ? "stderr" : "info"));
         this.input.subscription = selected;
         this.resourceGroups = result.resourceGroups ?? [];
         await this.refresh();
@@ -739,17 +852,17 @@ class WorkflowInstance {
         if (!phase) throw new CanvasError("phase_unknown", `Unknown phase "${phaseId}".`);
 
         this.runningPhase = phaseId;
-        this.addLog(phaseId, `Starting ${phase.title}.`);
+        this.addLog(phaseId, `Starting ${phase.title}.`, "start");
         await this.refresh();
 
         try {
             const result = await this.executePhase(phaseId);
             const waiting = result?.waitingForSkill === true;
             this.outputs[phaseOutputKey(phaseId)] = { ok: !waiting, ...result };
-            this.addLog(phaseId, waiting ? `Skill request was sent to Copilot. Refresh this step after the reports are generated.` : `Completed ${phase.title}.`);
+            this.addLog(phaseId, waiting ? `Skill request was sent to Copilot. Refresh this step after the reports are generated.` : `Completed ${phase.title}.`, waiting ? "warn" : "success");
         } catch (cause) {
             this.outputs[phaseOutputKey(phaseId)] = { ok: false, error: cause.message };
-            this.addLog(phaseId, `Failed: ${cause.message}`);
+            this.addLog(phaseId, `Failed: ${cause.message}`, "error");
             throw cause;
         } finally {
             this.runningPhase = null;
@@ -761,7 +874,7 @@ class WorkflowInstance {
 
     async executePhase(phaseId) {
         if (phaseId === "dependencies") {
-            return { result: await runPowerShell("Test-WafReviewPrerequisites.ps1", [], (line) => this.addLog(phaseId, line)) };
+            return { result: await runPowerShell("Test-WafReviewPrerequisites.ps1", [], (line, stream) => this.addLog(phaseId, line, stream === "stderr" ? "stderr" : "info")) };
         }
         if (phaseId === "connect") {
             if (!this.input.subscription || !this.input.resourceGroup) {
@@ -776,7 +889,7 @@ class WorkflowInstance {
             return await runPowerShell(
                 "Get-WafReviewResourceInventory.ps1",
                 ["-Subscription", this.input.subscription, "-ResourceGroup", this.input.resourceGroup, "-OutputDirectory", out],
-                (line) => this.addLog(phaseId, line),
+                (line, stream) => this.addLog(phaseId, line, stream === "stderr" ? "stderr" : "info"),
             );
         }
         if (phaseId === "collect") {
@@ -787,7 +900,7 @@ class WorkflowInstance {
             const result = await runPowerShell(
                 "Invoke-CollectWordPressPosture.ps1",
                 ["-Subscription", this.input.subscription, "-ResourceGroup", this.input.resourceGroup, "-OutputDirectory", out],
-                (line) => this.addLog(phaseId, line),
+                (line, stream) => this.addLog(phaseId, line, stream === "stderr" ? "stderr" : "info"),
             );
             this.input.evidenceDir = result.outputDirectory ? path.resolve(result.outputDirectory) : out;
             return { ...result, outputDirectory: this.input.evidenceDir, zipFile: result.zipFile ? path.resolve(result.zipFile) : null };
@@ -804,7 +917,7 @@ class WorkflowInstance {
             const target = outputRoot("Evidence", "Extracted", path.basename(zipFile, ".zip"));
             await rm(target, { recursive: true, force: true });
             await mkdir(target, { recursive: true });
-            await runPwshCommand(`Expand-Archive -LiteralPath ${JSON.stringify(zipFile)} -DestinationPath ${JSON.stringify(target)} -Force`, (line) => this.addLog(phaseId, line));
+            await runPwshCommand(`Expand-Archive -LiteralPath ${JSON.stringify(zipFile)} -DestinationPath ${JSON.stringify(target)} -Force`, (line, stream) => this.addLog(phaseId, line, stream === "stderr" ? "stderr" : "info"));
             const evidenceDir = await findExtractedEvidence(target);
             if (!evidenceDir) throw new Error("The extracted archive did not contain collection-manifest.json.");
             const jsonFileCount = await countJsonFiles(evidenceDir);
@@ -813,17 +926,18 @@ class WorkflowInstance {
             return { zipFile, extractDirectory: target, evidenceDir, manifest: path.join(evidenceDir, "collection-manifest.json"), jsonFileCount };
         }
         if (phaseId === "assessment") {
-            const reports = await discoverReports();
-            if (reports.length > 0) return { reportDir: reports[0].dir, prompt: this.state?.commands?.reviewPrompt };
-            const prompt = this.state?.commands?.reviewPrompt || phaseCommands(this.input, await buildDiscovery(this.input, this.outputs), this.outputs).reviewPrompt;
+            const discovered = await buildDiscovery(this.input, this.outputs);
+            if (discovered.reports.length > 0) return { reportDir: discovered.reports[0].dir, prompt: this.state?.commands?.reviewPrompt };
+            const prompt = this.state?.commands?.reviewPrompt || phaseCommands(this.input, discovered, this.outputs).reviewPrompt;
             const evidenceDir = this.input.evidenceDir || this.outputs.prepare_assessment?.evidenceDir;
             if (!evidenceDir) throw new Error("Run Step 6 first so the collector ZIP is extracted before assessment.");
             const messageId = await session.send({ prompt });
             return { waitingForSkill: true, skillSubmitted: true, submittedAt: new Date().toISOString(), messageId, prompt, evidenceDir };
         }
         if (phaseId === "display") {
-            const reports = await discoverReports();
-            if (reports.length === 0) throw new Error("No report directory was found. Run the assessment skill first.");
+            const discovered = await buildDiscovery(this.input, this.outputs);
+            const reports = discovered.reports;
+            if (reports.length === 0) throw new Error("No report directory was found for this run. Run the assessment skill first.");
             this.input.reportDir = reports[0].dir;
             const dashboardCommand = phaseCommands(this.input, await buildDiscovery(this.input, this.outputs), this.outputs).dashboard;
             const prompt = `Open the WAF review dashboard canvas for the generated report directory.\n\nUse this exact tool call:\n${dashboardCommand}`;
@@ -898,6 +1012,17 @@ class WorkflowInstance {
         }
     }
 
+    broadcastLog(entry) {
+        const frame = `data: ${JSON.stringify({ type: "log", entry, runId: this.currentRun.runId, runningPhase: this.runningPhase })}\n\n`;
+        for (const client of this.clients) {
+            try {
+                client.write(frame);
+            } catch {
+                this.clients.delete(client);
+            }
+        }
+    }
+
     async handle(req, res) {
         const url = new URL(req.url ?? "/", "http://127.0.0.1");
         if (url.pathname === "/" || url.pathname === "/index.html") {
@@ -926,6 +1051,25 @@ class WorkflowInstance {
         if (url.pathname === "/api/switch-run" && req.method === "POST") {
             const body = await readBody(req);
             sendJson(res, 200, await this.switchRun(body.runId));
+            return;
+        }
+        if (url.pathname === "/api/launcher" && req.method === "POST") {
+            sendJson(res, 200, await this.showLauncher());
+            return;
+        }
+        if (url.pathname === "/api/create-run" && req.method === "POST") {
+            const body = await readBody(req);
+            sendJson(res, 200, await this.createRun(body));
+            return;
+        }
+        if (url.pathname === "/api/open-run" && req.method === "POST") {
+            const body = await readBody(req);
+            sendJson(res, 200, await this.openRun(body.runId));
+            return;
+        }
+        if (url.pathname === "/api/upload-zip" && req.method === "POST") {
+            const buffer = await readBinaryBody(req);
+            sendJson(res, 200, await this.saveUploadedZip(url.searchParams.get("filename"), buffer));
             return;
         }
         if (url.pathname === "/api/subscriptions") {
@@ -1013,11 +1157,15 @@ function renderHtml() {
     pre { margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-subtle); white-space: pre-wrap; overflow: auto; max-height: 230px; }
     .muted { color: var(--muted); }
     .wrap { padding: 18px 20px 36px; }
-    .hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: start; }
+    .hero { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
+    .hero-title { min-width: 0; }
+    .hero-title h1 { overflow-wrap: anywhere; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; justify-content: flex-start; }
+    .toolbar .spacer { flex: 1 1 24px; }
     .actions, .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .run-controls { display: grid; grid-template-columns: minmax(220px, 360px) auto; gap: 8px; align-items: end; }
-    .run-controls label { display: grid; gap: 5px; }
-    .run-controls select { width: 100%; }
+    .run-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+    .run-controls label { display: grid; gap: 5px; min-width: 0; flex: 1 1 260px; }
+    .run-controls select { width: 100%; max-width: 420px; }
     .card { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; background: var(--surface); display: grid; gap: 10px; }
     .layout { display: grid; grid-template-columns: minmax(300px, 380px) minmax(420px, 1fr); gap: 18px; align-items: start; }
     .workflow-pane, .details-pane { display: grid; gap: 14px; }
@@ -1040,7 +1188,8 @@ function renderHtml() {
       box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--green) 58%, transparent), 0 10px 24px rgba(26,127,55,.14);
     }
     .phase[data-status="failed"] { border-color: var(--red); }
-    .phase[data-status="blocked"] { opacity: .55; }
+    .phase[data-status="blocked"], .phase[data-status="pending"] { opacity: .5; filter: grayscale(.55); }
+    .phase[data-status="pending"] .node, .phase[data-status="blocked"] .node { color: var(--muted); border-style: dashed; }
     .phase[aria-pressed="true"] { outline: 3px solid var(--accent-muted); }
     .phase-action { grid-column: 1 / -1; margin-top: 2px; justify-self: start; font-size: 12px; padding: 4px 8px; border-color: var(--accent); color: var(--accent); background: var(--accent-muted); }
     .phase-action.done { border-color: var(--green); color: var(--green); background: color-mix(in srgb, var(--green-muted) 80%, var(--surface)); }
@@ -1050,6 +1199,8 @@ function renderHtml() {
     .mini-mark { width: 17px; height: 17px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--line); font-weight: 700; font-size: 11px; }
     .mini-check.ok .mini-mark { color: var(--green); border-color: var(--green); }
     .mini-check.fail .mini-mark { color: var(--red); border-color: var(--red); }
+    .mini-check.idle { opacity: .75; }
+    .mini-check.idle .mini-mark { color: var(--muted); border-style: dashed; font-weight: 400; }
     .node { width: 42px; height: 42px; border-radius: 15px; display: grid; place-items: center; border: 1px solid var(--line); background: var(--surface); font-weight: 800; color: var(--muted); font-size: 18px; box-shadow: 0 8px 18px rgba(0,0,0,.05); }
     .node .glyph { font-size: 22px; line-height: 1; }
     .phase[data-status="done"] .node { color: var(--green); border-color: var(--green); background: color-mix(in srgb, var(--green-muted) 75%, var(--surface)); }
@@ -1058,7 +1209,9 @@ function renderHtml() {
     .badge.done { color: var(--green); border-color: var(--green); }
     .badge.running, .badge.current, .badge.ready { color: var(--accent); border-color: var(--accent); background: var(--accent-muted); }
     .badge.failed { color: var(--red); border-color: var(--red); }
-    .scope { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    .scope { display: grid; grid-template-columns: 1fr; gap: 10px; border: 1px solid var(--accent); border-radius: var(--radius); padding: 14px; background: var(--accent-muted); }
+    .scope-head { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 10px; align-items: center; }
+    .scope-head .bubble { width: 32px; height: 32px; border-radius: 50%; background: var(--surface); display: grid; place-items: center; font-size: 16px; }
     .scope label { display: grid; gap: 5px; }
     .scope select { width: 100%; }
     .progress { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center; padding: 14px; border: 1px solid var(--line); border-radius: 18px; background: radial-gradient(circle at top left, var(--accent-muted), transparent 38%), var(--surface); }
@@ -1079,6 +1232,8 @@ function renderHtml() {
     .mark { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--line); font-weight: 700; }
     .check.ok .mark { color: var(--green); border-color: var(--green); }
     .check.fail .mark { color: var(--red); border-color: var(--red); }
+    .check.idle { opacity: .72; border-style: dashed; }
+    .check.idle .mark { color: var(--muted); border-color: var(--line); border-style: dashed; font-weight: 400; }
     .resource-table { width: 100%; border-collapse: collapse; font-size: 12px; }
     .resource-table th, .resource-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
     .resource-table th { color: var(--muted); font-weight: 600; }
@@ -1094,32 +1249,122 @@ function renderHtml() {
     .logs { max-height: 260px; overflow: auto; }
     .inline-log { max-height: 220px; }
     .log-line { display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 8px; padding: 6px 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
-    .section-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .section-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .term-card { gap: 8px; }
+    .activity-dialog { width: min(920px, 92vw); border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: inherit; padding: 18px; }
+    .activity-dialog::backdrop { background: rgba(2, 6, 23, .55); }
+    .activity-dialog .logs { max-height: 62vh; margin-top: 10px; }
+    .term-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .term-toolbar button { font-size: 12px; padding: 3px 8px; }
+    .term-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+    .term-state { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+    .term-state.live { color: var(--accent); }
+    .term-state.live::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.1s ease-in-out infinite; }
+    .term-state.ok { color: var(--green); }
+    .term-state.bad { color: var(--red); }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+    .terminal {
+      background: #0d1117; color: #d5dce6; border: 1px solid #30363d; border-radius: 10px;
+      font-family: var(--font-mono, "SFMono-Regular", Consolas, monospace); font-size: 12px; line-height: 18px;
+      padding: 10px 0; max-height: 380px; min-height: 140px; overflow: auto; scrollbar-color: #4b5563 #0d1117;
+    }
+    .term-line { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 10px; padding: 1px 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .term-line:hover { background: #161b22; }
+    .term-time { color: #6e7681; user-select: none; }
+    .term-line.start .term-text { color: #79c0ff; font-weight: 600; }
+    .term-line.success .term-text { color: #56d364; font-weight: 600; }
+    .term-line.warn .term-text { color: #e3b341; }
+    .term-line.error .term-text, .term-line.stderr .term-text { color: #ff7b72; }
+    .term-empty { padding: 10px 12px; color: #6e7681; }
+    .term-cursor { display: inline-block; width: 7px; height: 13px; background: #58a6ff; vertical-align: -2px; animation: pulse .9s steps(2) infinite; }
     @media (max-width: 980px) { .hero, .layout, .grid, .focus-grid, .progress { grid-template-columns: 1fr; } .workflow-pane { position: static; max-height: none; overflow: visible; } .phase:not(:last-child)::after { display: none; } }
+    .launcher { max-width: 1040px; margin: 0 auto; padding: 32px 24px 64px; }
+    .launcher-hero { text-align: center; margin-bottom: 28px; }
+    .launcher-hero h1 { font-size: 30px; margin: 0 0 8px; }
+    .launcher-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    @media (max-width: 860px) { .launcher-cards { grid-template-columns: 1fr; } }
+    .launcher-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; background: var(--surface); display: flex; flex-direction: column; gap: 12px; }
+    .launcher-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-muted); }
+    .launcher-card h2 { margin: 0; font-size: 18px; display: flex; align-items: center; gap: 10px; }
+    .launcher-card h2 .bubble { width: 34px; height: 34px; border-radius: 50%; background: var(--accent-muted); color: var(--accent); display: grid; place-items: center; font-size: 17px; }
+    .launcher-form { display: flex; flex-direction: column; gap: 12px; }
+    .launcher-form label { display: flex; flex-direction: column; gap: 5px; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    .launcher-form input[type="text"], .launcher-form input[type="file"] { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
+    .choice { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; }
+    .choice.selected { border-color: var(--accent); background: var(--accent-muted); }
+    .choice input { margin-top: 3px; }
+    .choice strong { display: block; font-size: 13px; }
+    .choice span { font-size: 12px; color: var(--muted); }
+    .run-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow: auto; }
+    .run-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; text-align: left; background: var(--surface); color: inherit; font: inherit; }
+    .run-item:hover { border-color: var(--accent); background: var(--accent-muted); }
+    .run-item .meta { font-size: 12px; color: var(--muted); }
+    .run-item strong, .run-item .meta { display: block; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
-  <header>
+  <section class="launcher hidden" id="launcher">
+    <div class="launcher-hero">
+      <h1>WordPress Well-Architected review</h1>
+      <p class="muted">Start a new guided review run, or reopen a previous one to review its evidence and reports.</p>
+      <p id="launcherStatus" class="muted"></p>
+    </div>
+    <div class="launcher-cards">
+      <article class="launcher-card" id="createCard">
+        <h2><span class="bubble">＋</span> Create new run</h2>
+        <p class="muted">Name the run and choose whether evidence is collected here or uploaded as a collector ZIP.</p>
+        <div class="launcher-form">
+          <label>Run name
+            <input type="text" id="newRunName" placeholder="e.g. Contoso production review" maxlength="80" />
+          </label>
+          <label class="choice selected" id="choiceCollect">
+            <input type="radio" name="runSource" value="collect" checked />
+            <span><strong>Brand new run</strong><span>Run all eight steps here: validate tools, connect to Azure, collect evidence, package, extract, assess, display.</span></span>
+          </label>
+          <label class="choice" id="choiceUpload">
+            <input type="radio" name="runSource" value="upload" />
+            <span><strong>Collector ZIP will be provided</strong><span>The collector already ran elsewhere. Upload the ZIP and the workflow starts at Step 6 (extract evidence).</span></span>
+          </label>
+          <label id="uploadRow" class="hidden">Collector ZIP file
+            <input type="file" id="zipUpload" accept=".zip" />
+          </label>
+          <div class="actions"><button id="createRun" class="primary">Create run</button></div>
+        </div>
+      </article>
+      <article class="launcher-card" id="openCard">
+        <h2><span class="bubble">🗂️</span> Open existing run</h2>
+        <p class="muted">Pick a saved run to reload its state, logs, evidence, and reports.</p>
+        <div class="run-list" id="launcherRuns"></div>
+      </article>
+    </div>
+  </section>
+  <header id="appHeader">
     <div class="hero">
-      <div>
+      <div class="hero-title">
         <h1>WordPress WAF review workflow</h1>
         <p class="muted">Eight-state sequence: validate tools, connect Azure scope, pre-assess, collect, package, unzip, assess, display.</p>
       </div>
-      <div class="actions">
+      <div class="toolbar">
         <div class="run-controls">
+          <button id="backToStart">Start screen</button>
           <label><span class="muted">Run</span><select id="runSelect"></select></label>
           <button id="resetRun" class="danger">Reset / new run</button>
         </div>
-        <button id="manual">Manual approvals</button>
-        <button id="automatic" class="primary">Automatic after scope</button>
-        <button id="runSelectedTop" class="primary">Run selected step</button>
-        <button id="refresh">Refresh</button>
+        <span class="spacer"></span>
+        <div class="actions">
+          <button id="manual">Manual approvals</button>
+          <button id="automatic" class="primary">Automatic after scope</button>
+          <button id="runSelectedTop" class="primary">Run selected step</button>
+          <button id="showActivity">Activity log</button>
+          <button id="refresh">Refresh</button>
+        </div>
       </div>
     </div>
     <p id="uiStatus" class="muted"></p>
     <p id="updated" class="muted"></p>
   </header>
-  <main class="wrap">
+  <main class="wrap" id="appMain">
     <section class="layout">
       <aside class="workflow-pane">
         <section class="progress" id="progress"></section>
@@ -1127,10 +1372,19 @@ function renderHtml() {
       </aside>
       <section class="details-pane">
         <article class="card" id="detail"></article>
-        <article class="card">
-          <div class="section-title"><h2>Selected step logs</h2><span class="badge" id="selectedLogBadge"></span></div>
-          <div class="logs inline-log" id="stepLogs"></div>
+        <article class="card term-card">
+          <div class="section-title">
+            <h2>Step console</h2>
+            <div class="term-toolbar">
+              <span class="badge" id="selectedLogBadge"></span>
+              <span class="term-state" id="termState"></span>
+              <label class="term-toggle"><input type="checkbox" id="termFollow" checked /> Follow</label>
+              <button id="termCopy">Copy</button>
+            </div>
+          </div>
+          <div class="terminal" id="stepLogs" role="log" aria-live="polite"></div>
         </article>
+        <article class="card" id="detailMeta"></article>
         <article class="card">
           <h2>Command / prompt</h2>
           <pre id="command"></pre>
@@ -1140,13 +1394,16 @@ function renderHtml() {
           <h2>Workspace state</h2>
           <div class="list" id="workspace"></div>
         </article>
-        <article class="card">
-          <h2>Full activity log</h2>
-          <div class="logs" id="logs"></div>
-        </article>
       </section>
     </section>
   </main>
+  <dialog id="activityDialog" class="activity-dialog">
+    <div class="section-title">
+      <h2>Full activity log</h2>
+      <button id="closeActivity">Close</button>
+    </div>
+    <div class="logs" id="logs"></div>
+  </dialog>
   <script>
     let state = null;
     let selected = null;
@@ -1233,12 +1490,19 @@ function renderHtml() {
       }
       return '<button type="button" class="phase-action" disabled>Waiting for previous step</button>';
     }
+    function miniCheck(value, label, ran) {
+      const ok = Boolean(value);
+      const cls = ok ? "ok" : ran ? "fail" : "idle";
+      const glyph = ok ? "✓" : ran ? "×" : "○";
+      return \`<div class="mini-check \${cls}"><span class="mini-mark">\${glyph}</span><span>\${label}</span></div>\`;
+    }
     function renderInlinePhaseResult(p) {
       const out = state.outputs[p.id.replaceAll("-", "_")] || {};
+      const ran = stepRan(p.id);
       if (p.id === "dependencies") {
         const checks = out.result?.checks || [];
-        if (!checks.length) return '<div class="phase-inline"><span class="muted">No dependency results yet.</span></div>';
-        return \`<div class="phase-inline">\${checks.map((c) => \`<div class="mini-check \${c.ok ? "ok" : "fail"}"><span class="mini-mark">\${c.ok ? "✓" : "×"}</span><span>\${esc(c.name)}</span></div>\`).join("")}</div>\`;
+        if (!checks.length) return '<div class="phase-inline"><span class="muted">Not run yet.</span></div>';
+        return \`<div class="phase-inline">\${checks.map((c) => miniCheck(c.ok, esc(c.name), true)).join("")}</div>\`;
       }
       if (p.id === "connect") {
         const sub = state.subscriptions.find((s) => s.id === state.context.subscription);
@@ -1246,19 +1510,19 @@ function renderHtml() {
         const subLabel = sub ? sub.name : state.context.subscription || "No subscription selected";
         const rgLabel = rg ? \`\${rg.name}\${rg.location ? " (" + rg.location + ")" : ""}\` : state.context.resourceGroup || "No resource group selected";
         return \`<div class="phase-inline">
-          <div class="mini-check \${state.context.subscription ? "ok" : "fail"}"><span class="mini-mark">\${state.context.subscription ? "✓" : "×"}</span><span>\${esc(subLabel)}</span></div>
-          <div class="mini-check \${state.context.resourceGroup ? "ok" : "fail"}"><span class="mini-mark">\${state.context.resourceGroup ? "✓" : "×"}</span><span>\${esc(rgLabel)}</span></div>
+          \${miniCheck(state.context.subscription, esc(subLabel), ran)}
+          \${miniCheck(state.context.resourceGroup, esc(rgLabel), ran)}
         </div>\`;
       }
       if (p.id === "preassess") {
         const inv = out.inventory?.inventory || out.inventory || out.result?.inventory || out;
         const count = inv?.resourceCount ?? inv?.resources?.length ?? 0;
-        if (!count) return \`<div class="phase-inline">\${renderRunningInline(p)}<div class="mini-check fail"><span class="mini-mark">×</span><span>No inventory yet</span></div></div>\`;
+        if (!count) return \`<div class="phase-inline">\${renderRunningInline(p)}\${miniCheck(false, ran ? "No inventory returned" : "Not run yet", ran)}</div>\`;
         const groups = inv.resourceTypes || [];
         const resources = inv.resources || [];
         return \`<div class="phase-inline">
           \${renderRunningInline(p)}
-          <div class="mini-check ok"><span class="mini-mark">✓</span><span>\${count} resources found</span></div>
+          \${miniCheck(true, count + " resources found", true)}
           <div class="pill-row">\${groups.slice(0, 10).map((g) => \`<span class="pill">\${esc(shortType(g.type))} · \${esc(g.count)}</span>\`).join("")}</div>
           <div class="mini-resources">\${resources.slice(0, 80).map((r) => \`<div class="mini-resource"><span title="\${esc(r.type)}">\${esc(r.name)}</span><span class="muted">\${esc(shortType(r.type))}</span></div>\`).join("")}</div>
         </div>\`;
@@ -1267,20 +1531,21 @@ function renderHtml() {
         const zipLabel = out.zipFile || packageZipLabel();
         return \`<div class="phase-inline">
           \${renderRunningInline(p)}
-          <div class="mini-check \${state.context.evidenceDir ? "ok" : "fail"}"><span class="mini-mark">\${state.context.evidenceDir ? "✓" : "×"}</span><span>Evidence folder</span></div>
-          <div class="mini-check \${zipLabel ? "ok" : "fail"}"><span class="mini-mark">\${zipLabel ? "✓" : "×"}</span><span>Collector ZIP\${zipLabel ? ": " + esc(zipLabel) : ""}</span></div>
+          \${miniCheck(state.context.evidenceDir, "Evidence folder", ran)}
+          \${miniCheck(zipLabel, "Collector ZIP" + (zipLabel ? ": " + esc(zipLabel) : ""), ran)}
         </div>\`;
       }
       if (p.id === "package") {
         const zipLabel = out.zipFile || packageZipLabel();
-        return \`<div class="phase-inline"><div class="mini-check \${zipLabel ? "ok" : "fail"}"><span class="mini-mark">\${zipLabel ? "✓" : "×"}</span><span>Package\${zipLabel ? ": " + esc(zipLabel) : ""}</span></div></div>\`;
+        return \`<div class="phase-inline">\${miniCheck(zipLabel, "Package" + (zipLabel ? ": " + esc(zipLabel) : ""), ran)}</div>\`;
       }
-      if (p.id === "prepare-assessment") return \`<div class="phase-inline"><div class="mini-check \${out.evidenceDir ? "ok" : "fail"}"><span class="mini-mark">\${out.evidenceDir ? "✓" : "×"}</span><span>Manifest ready</span></div></div>\`;
+      if (p.id === "prepare-assessment") return \`<div class="phase-inline">\${miniCheck(out.evidenceDir, "Manifest ready", ran)}</div>\`;
       if (p.id === "assessment") {
         const waiting = out.waitingForSkill && !state.discovered.reports.length;
-        return \`<div class="phase-inline"><div class="mini-check \${state.discovered.reports.length ? "ok" : waiting ? "" : "fail"}"><span class="mini-mark">\${state.discovered.reports.length ? "✓" : waiting ? "…" : "×"}</span><span>\${state.discovered.reports.length ? "Reports generated" : waiting ? "Skill request sent" : "Reports not generated yet"}</span></div></div>\`;
+        if (waiting) return '<div class="phase-inline"><div class="mini-check idle"><span class="mini-mark">…</span><span>Skill request sent</span></div></div>';
+        return \`<div class="phase-inline">\${miniCheck(state.discovered.reports.length, state.discovered.reports.length ? "Reports generated" : ran ? "Reports not generated" : "Not run yet", ran)}</div>\`;
       }
-      if (p.id === "display") return \`<div class="phase-inline"><div class="mini-check \${state.discovered.reports.length ? "ok" : "fail"}"><span class="mini-mark">\${state.discovered.reports.length ? "✓" : "×"}</span><span>Dashboard source</span></div></div>\`;
+      if (p.id === "display") return \`<div class="phase-inline">\${miniCheck(state.discovered.reports.length, "Dashboard source", ran)}</div>\`;
       return "";
     }
     function renderRunningInline(p) {
@@ -1296,13 +1561,16 @@ function renderHtml() {
       const out = state.outputs[p.id.replaceAll("-", "_")] || {};
       document.getElementById("detail").innerHTML = \`
         <div class="detail-head"><div class="node"><span class="glyph">\${phaseGlyphs[p.id] || esc(p.icon)}</span></div><div><span class="badge \${p.status}">Step \${esc(p.icon)} · \${esc(labels[p.status] || p.status)}</span><h2>\${esc(p.title)}</h2><p>\${esc(p.detail)}</p></div></div>
+        \${p.id === "connect" ? renderScopeControls() : ""}
         <div class="detail-actions">
           <button id="runSelectedInDetail" class="primary" \${["running", "blocked", "pending"].includes(p.status) ? "disabled" : ""}>Run this step</button>
           <button id="copySelectedInDetail">Copy instruction</button>
         </div>
+      \`;
+      document.getElementById("detailMeta").innerHTML = \`
+        <h2>Step details</h2>
         <div class="item"><strong>Execution mode</strong><span class="muted">\${esc(state.mode === "automatic" ? "Automatic after scope" : "Manual approval between phases")}</span></div>
         \${p.id !== "connect" ? \`<div class="item"><strong>Selected scope</strong><span class="muted">\${esc(state.context.subscription || "No subscription")} / \${esc(state.context.resourceGroup || "No resource group")}</span></div>\` : ""}
-        \${p.id === "connect" ? renderScopeControls() : ""}
         \${out.error && !(p.id === "package" && packageZipLabel()) ? \`<div class="item"><strong>Last error</strong><span class="muted">\${esc(out.error)}</span></div>\` : ""}
         \${out.prompt ? \`<div class="item"><strong>Skill request</strong><span class="muted">\${esc(out.skillSubmitted ? "Sent to Copilot. Refresh this step after the reports are generated." : "Ready to send to Copilot from this step.")}</span></div>\` : ""}
         \${renderPhaseVisual(p, out)}
@@ -1313,6 +1581,7 @@ function renderHtml() {
     }
     function renderScopeControls() {
       return \`<section class="scope">
+        <div class="scope-head"><span class="bubble">☁️</span><div><h3>Select Azure scope</h3><p class="muted">Choose the subscription and resource group this review run targets.</p></div></div>
         <label><span class="muted">Subscription</span><select id="subscription"></select></label>
         <label><span class="muted">Resource group</span><select id="resourceGroup"></select></label>
         <div class="actions">
@@ -1333,19 +1602,28 @@ function renderHtml() {
       if (p.id === "display") return renderDisplayVisual(out);
       return "";
     }
+    function stepRan(id) {
+      const out = state.outputs[id.replaceAll("-", "_")];
+      return Boolean(out && (out.ok !== undefined || Object.keys(out).length > 0));
+    }
+    function checkCard(title, value, detail, ran) {
+      const ok = Boolean(value);
+      const cls = ok ? "ok" : ran ? "fail" : "idle";
+      const glyph = ok ? "✓" : ran ? "×" : "○";
+      return \`<div class="check \${cls}"><div class="mark">\${glyph}</div><div><strong>\${esc(title)}</strong><p class="muted">\${esc(detail)}</p></div></div>\`;
+    }
     function renderDependencyVisual(out) {
       const checks = out.result?.checks || [];
       if (!checks.length) return '<div class="item"><strong>Dependency checks</strong><span class="muted">Run this step to see pass/fail checks for local tools.</span></div>';
-      return \`<div><h3>Dependency checks</h3><div class="check-grid">\${checks.map((c) => \`
-        <div class="check \${c.ok ? "ok" : "fail"}"><div class="mark">\${c.ok ? "✓" : "×"}</div><div><strong>\${esc(c.name)}</strong><p class="muted">\${esc(c.detail)}</p></div></div>
-      \`).join("")}</div></div>\`;
+      return \`<div><h3>Dependency checks</h3><div class="check-grid">\${checks.map((c) => checkCard(c.name, c.ok, c.detail, true)).join("")}</div></div>\`;
     }
     function renderScopeVisual() {
       const sub = state.subscriptions.find((s) => s.id === state.context.subscription);
       const rg = state.resourceGroups.find((g) => g.name === state.context.resourceGroup);
+      const ran = stepRan("connect");
       return \`<div><h3>Azure scope</h3><div class="check-grid">
-        <div class="check \${state.context.subscription ? "ok" : "fail"}"><div class="mark">\${state.context.subscription ? "✓" : "×"}</div><div><strong>Subscription</strong><p class="muted">\${esc(sub ? sub.name + " — " + sub.id : state.context.subscription || "Not selected")}</p></div></div>
-        <div class="check \${state.context.resourceGroup ? "ok" : "fail"}"><div class="mark">\${state.context.resourceGroup ? "✓" : "×"}</div><div><strong>Resource group</strong><p class="muted">\${esc(rg ? rg.name + " — " + rg.location : state.context.resourceGroup || "Not selected")}</p></div></div>
+        \${checkCard("Subscription", state.context.subscription, sub ? sub.name + " — " + sub.id : state.context.subscription || "Not selected yet", ran)}
+        \${checkCard("Resource group", state.context.resourceGroup, rg ? rg.name + " — " + rg.location : state.context.resourceGroup || "Not selected yet", ran)}
       </div></div>\`;
     }
     function renderPreassessVisual(out) {
@@ -1363,14 +1641,15 @@ function renderHtml() {
     }
     function renderCollectVisual() {
       const zipLabel = state.outputs.collect?.zipFile || packageZipLabel();
+      const ran = stepRan("collect");
       return \`<div><h3>Collection output</h3><div class="check-grid">
-        <div class="check \${state.context.evidenceDir ? "ok" : "fail"}"><div class="mark">\${state.context.evidenceDir ? "✓" : "×"}</div><div><strong>Evidence folder</strong><p class="muted">\${esc(state.context.evidenceDir || "Not created yet")}</p></div></div>
-        <div class="check \${zipLabel ? "ok" : "fail"}"><div class="mark">\${zipLabel ? "✓" : "×"}</div><div><strong>Collector ZIP</strong><p class="muted">\${esc(zipLabel || "Not packaged yet")}</p></div></div>
+        \${checkCard("Evidence folder", state.context.evidenceDir, state.context.evidenceDir || "Not created yet", ran)}
+        \${checkCard("Collector ZIP", zipLabel, zipLabel || "Not packaged yet", ran)}
       </div></div>\`;
     }
     function renderPackageVisual(out) {
       const zipLabel = out.zipFile || packageZipLabel();
-      return \`<div class="check \${zipLabel ? "ok" : "fail"}"><div class="mark">\${zipLabel ? "✓" : "×"}</div><div><strong>Package file</strong><p class="muted">\${esc(zipLabel || "Run this step after collection to confirm the ZIP.")}</p></div></div>\`;
+      return checkCard("Package file", zipLabel, zipLabel || "Run this step after collection to confirm the ZIP.", stepRan("package"));
     }
     function packageZipLabel() {
       if (state.outputs.package?.zipFile) return state.outputs.package.zipFile;
@@ -1382,18 +1661,19 @@ function renderHtml() {
     }
     function renderPrepareAssessmentVisual(out) {
       const step7Input = out.evidenceDir || state.context.evidenceDir || "";
+      const ran = stepRan("prepare-assessment");
       return \`<div><h3>Assessment preparation</h3><div class="check-grid">
-        <div class="check \${out.extractDirectory ? "ok" : "fail"}"><div class="mark">\${out.extractDirectory ? "✓" : "×"}</div><div><strong>Extracted folder</strong><p class="muted">\${esc(out.extractDirectory || "Not extracted yet")}</p></div></div>
-        <div class="check \${step7Input ? "ok" : "fail"}"><div class="mark">\${step7Input ? "✓" : "×"}</div><div><strong>Step 7 evidence folder</strong><p class="muted">\${esc(step7Input || "collection-manifest.json not found yet")}</p></div></div>
-        <div class="check \${out.jsonFileCount > 0 ? "ok" : "fail"}"><div class="mark">\${out.jsonFileCount > 0 ? "✓" : "×"}</div><div><strong>JSON evidence files</strong><p class="muted">\${esc(out.jsonFileCount > 0 ? out.jsonFileCount + " JSON files found" : "No JSON files verified yet")}</p></div></div>
-        <div class="check \${out.manifest ? "ok" : "fail"}"><div class="mark">\${out.manifest ? "✓" : "×"}</div><div><strong>Manifest</strong><p class="muted">\${esc(out.manifest || "collection-manifest.json not verified yet")}</p></div></div>
+        \${checkCard("Extracted folder", out.extractDirectory, out.extractDirectory || "Not extracted yet", ran)}
+        \${checkCard("Step 7 evidence folder", step7Input, step7Input || "collection-manifest.json not found yet", ran)}
+        \${checkCard("JSON evidence files", out.jsonFileCount > 0, out.jsonFileCount > 0 ? out.jsonFileCount + " JSON files found" : "No JSON files verified yet", ran)}
+        \${checkCard("Manifest", out.manifest, out.manifest || "collection-manifest.json not verified yet", ran)}
       </div></div>\`;
     }
     function renderAssessmentVisual(out) {
       const prompt = out.prompt || state.commands.reviewPrompt;
       const step7Input = state.context.evidenceDir || state.outputs.prepare_assessment?.evidenceDir || "";
       return \`<div class="list">
-        <div class="check \${state.discovered.reports.length ? "ok" : "fail"}"><div class="mark">\${state.discovered.reports.length ? "✓" : "×"}</div><div><strong>Reports</strong><p class="muted">\${esc(out.reportDir ? "Reports found at " + out.reportDir : "Not generated yet")}</p></div></div>
+        \${checkCard("Reports", state.discovered.reports.length, out.reportDir ? "Reports found at " + out.reportDir : "Not generated yet", stepRan("assessment"))}
         <div class="item"><strong>Skill input from Step 6</strong><span class="muted">\${esc(step7Input || "Run Step 6 first to extract the collector ZIP.")}</span></div>
         <div class="item"><strong>Evidence JSON check</strong><span class="muted">\${esc(state.outputs.prepare_assessment?.jsonFileCount ? state.outputs.prepare_assessment.jsonFileCount + " JSON files verified in Step 6" : "Step 6 has not verified JSON files yet.")}</span></div>
         \${out.skillSubmitted ? \`<div class="item"><strong>Submitted</strong><span class="muted">\${esc(out.submittedAt ? new Date(out.submittedAt).toLocaleString() : "Skill request sent to Copilot.")}</span></div>\` : ""}
@@ -1403,7 +1683,7 @@ function renderHtml() {
     }
     function renderDisplayVisual(out) {
       return \`<div class="list">
-        <div class="check \${state.discovered.reports.length ? "ok" : "fail"}"><div class="mark">\${state.discovered.reports.length ? "✓" : "×"}</div><div><strong>Dashboard report source</strong><p class="muted">\${esc(state.context.reportDir || state.discovered.reports[0]?.label || "No generated report directory found")}</p></div></div>
+        \${checkCard("Dashboard report source", state.discovered.reports.length, state.context.reportDir || state.discovered.reports[0]?.label || "No generated report directory found", stepRan("display"))}
         <div class="item"><strong>Dashboard action</strong><span class="muted">\${esc(out.dashboardSubmitted ? "Dashboard open request sent to Copilot." : "Click Run this step to open the dashboard canvas.")}</span></div>
         \${out.submittedAt ? \`<div class="item"><strong>Submitted</strong><span class="muted">\${esc(new Date(out.submittedAt).toLocaleString())}</span></div>\` : ""}
       </div>\`;
@@ -1414,18 +1694,77 @@ function renderHtml() {
         ["Pre-assessment", state.outputs.preassess?.outputFile || "Not run"],
         ["Evidence", state.context.evidenceDir || state.discovered.evidence.map((x) => x.label).join("\\n") || "None found"],
         ["Package", state.outputs.collect?.zipFile || state.discovered.zips.map((x) => x.label).join("\\n") || "None found"],
-        ["Reports", state.context.reportDir || state.discovered.reports.map((x) => x.label).join("\\n") || "None found"],
+        ["Reports", state.context.reportDir || state.discovered.reports.map((x) => x.label).join("\\n") || "None for this run"],
       ];
       document.getElementById("workspace").innerHTML = rows.map(([k, v]) => \`<div class="item"><strong>\${esc(k)}</strong><span class="muted" style="white-space:pre-wrap">\${esc(v)}</span></div>\`).join("");
     }
     function renderLogs() {
       const lines = (state.logs || []).slice().reverse();
-      const p = currentPhase();
-      const selectedLines = (state.logs || []).filter((line) => line.phase === p.id).slice().reverse();
       const html = lines.map((line) => \`<div class="log-line"><span class="muted">\${esc(line.phase)}</span><span>\${esc(line.message)}</span></div>\`).join("") || '<p class="muted">No activity yet.</p>';
       document.getElementById("logs").innerHTML = html;
-      document.getElementById("selectedLogBadge").textContent = p.title;
-      document.getElementById("stepLogs").innerHTML = selectedLines.map((line) => \`<div class="log-line"><span class="muted">\${new Date(line.at).toLocaleTimeString()}</span><span>\${esc(line.message)}</span></div>\`).join("") || '<p class="muted">No logs for this step yet. Run this step to see progress here.</p>';
+      renderTerminal();
+    }
+    let termPhase = null;
+    let termCount = 0;
+    let termRun = null;
+    let termSeq = 0;
+    function termLineHtml(line) {
+      const level = ["start", "success", "warn", "error", "stderr"].includes(line.level) ? line.level : "info";
+      const time = new Date(line.at).toLocaleTimeString([], { hour12: false });
+      return \`<div class="term-line \${level}"><span class="term-time">\${esc(time)}</span><span class="term-text">\${esc(line.message)}</span></div>\`;
+    }
+    function termStick() {
+      const host = document.getElementById("stepLogs");
+      if (!document.getElementById("termFollow").checked) return;
+      host.scrollTop = host.scrollHeight;
+    }
+    function termEmpty(host) {
+      host.innerHTML = '<div class="term-empty">$ waiting for this step to run<span class="term-cursor"></span></div>';
+      termCount = 0;
+    }
+    function termAppend(host, entries) {
+      if (!entries.length) return;
+      if (termCount === 0) host.innerHTML = "";
+      host.insertAdjacentHTML("beforeend", entries.map(termLineHtml).join(""));
+      termCount += entries.length;
+      termSeq = Math.max(termSeq, entries[entries.length - 1].seq || 0);
+      termStick();
+    }
+    function renderTerminalState() {
+      const p = currentPhase();
+      const el = document.getElementById("termState");
+      const running = p.status === "running";
+      el.className = "term-state" + (running ? " live" : p.status === "done" ? " ok" : p.status === "failed" ? " bad" : "");
+      el.textContent = running ? "Running" : p.status === "done" ? "Succeeded" : p.status === "failed" ? "Failed" : stepRan(p.id) ? "Idle" : "Not run yet";
+    }
+    function renderTerminal() {
+      const p = currentPhase();
+      const runId = state.run?.runId || "";
+      const host = document.getElementById("stepLogs");
+      const forPhase = (state.logs || []).filter((line) => line.phase === p.id);
+      document.getElementById("selectedLogBadge").textContent = "Step " + p.icon + " · " + p.title;
+      renderTerminalState();
+      const switched = termPhase !== p.id || termRun !== runId;
+      const lost = termCount > 0 && host.querySelector(".term-line") === null;
+      if (switched || lost) {
+        termPhase = p.id;
+        termRun = runId;
+        termCount = 0;
+        termSeq = 0;
+        host.innerHTML = "";
+      }
+      if (forPhase.length === 0) {
+        if (termCount === 0) termEmpty(host);
+        return;
+      }
+      termAppend(host, forPhase.filter((line) => (line.seq || 0) > termSeq));
+      if (termCount === 0) termEmpty(host);
+    }
+    function appendTerminalLine(entry) {
+      if (!state) return;
+      if (entry.phase !== termPhase) return;
+      if ((entry.seq || 0) <= termSeq) return;
+      termAppend(document.getElementById("stepLogs"), [entry]);
     }
     function renderSelects() {
       const sub = document.getElementById("subscription");
@@ -1447,18 +1786,128 @@ function renderHtml() {
       }
       rg.innerHTML = '<option value="">Select resource group...</option>' + groups.map((g) => \`<option value="\${esc(g.name)}" \${g.name === state.context.resourceGroup ? "selected" : ""}>\${esc(g.name)} — \${esc(g.location || "")}</option>\`).join("");
     }
+    let autoScopeLoaded = false;
+    async function autoLoadScope() {
+      if (autoScopeLoaded) return;
+      if (currentPhase().id !== "connect") return;
+      if ((state.subscriptions || []).length > 0 && (state.resourceGroups || []).length > 0) return;
+      autoScopeLoaded = true;
+      try {
+        if ((state.subscriptions || []).length === 0) {
+          setUiStatus("Loading Azure subscriptions...");
+          const { subscriptions } = await getJson("/api/subscriptions");
+          state.subscriptions = subscriptions || [];
+        }
+        const subId = document.getElementById("subscription")?.value || state.context.subscription;
+        if (subId && (state.resourceGroups || []).length === 0) {
+          setUiStatus("Loading resource groups for the current subscription...");
+          const { resourceGroups } = await getJson("/api/resource-groups?subscription=" + encodeURIComponent(subId));
+          state.resourceGroups = resourceGroups || [];
+        }
+        renderSelects();
+        setUiStatus("Azure scope options loaded. Pick a resource group and choose Use selected scope.", "success");
+      } catch (error) {
+        autoScopeLoaded = false;
+        setUiStatus("Could not load Azure scope automatically: " + error.message, "error");
+      }
+    }
     function runLabel(run) {
       const created = run.createdAt ? new Date(run.createdAt).toLocaleString() : run.runId;
       const scope = run.resourceGroup || run.subscription || "No scope selected";
-      return \`\${run.runId} — \${scope} — \${created}\`;
+      const name = run.name ? run.name + " — " : "";
+      return \`\${name}\${run.runId} — \${scope} — \${created}\`;
     }
+    function applyView() {
+      const launcher = state.view === "launcher";
+      document.getElementById("launcher").classList.toggle("hidden", !launcher);
+      document.getElementById("appHeader").classList.toggle("hidden", launcher);
+      document.getElementById("appMain").classList.toggle("hidden", launcher);
+    }
+    function setLauncherStatus(message, tone = "muted") {
+      const el = document.getElementById("launcherStatus");
+      el.textContent = message || "";
+      el.style.color = tone === "error" ? "var(--red)" : tone === "success" ? "var(--green)" : "var(--muted)";
+    }
+    function renderLauncherRuns() {
+      const host = document.getElementById("launcherRuns");
+      const runs = state.runs || [];
+      if (runs.length === 0) {
+        host.innerHTML = '<p class="muted">No saved runs yet. Create one to get started.</p>';
+        return;
+      }
+      host.innerHTML = runs.map((run) => \`
+        <button class="run-item" data-run="\${esc(run.runId)}">
+          <span>
+            <strong>\${esc(run.name || run.runId)}</strong>
+            <span class="meta">\${esc(run.resourceGroup || run.subscription || "No scope selected")} · \${run.source === "upload" ? "Uploaded ZIP" : "Full collection"} · \${run.createdAt ? esc(new Date(run.createdAt).toLocaleString()) : ""}</span>
+          </span>
+          <span class="badge \${run.completedSteps >= run.totalSteps ? "done" : "current"}">\${run.completedSteps}/\${run.totalSteps}</span>
+        </button>\`).join("");
+      host.querySelectorAll(".run-item").forEach((button) => button.addEventListener("click", async () => {
+        setLauncherStatus("Loading run " + button.dataset.run + "...");
+        try {
+          state = await post("/api/open-run", { runId: button.dataset.run });
+          selected = state.currentPhase;
+          render();
+        } catch (error) {
+          setLauncherStatus(error.message, "error");
+        }
+      }));
+    }
+    function selectedSource() {
+      const checked = document.querySelector('input[name="runSource"]:checked');
+      return checked ? checked.value : "collect";
+    }
+    function syncSourceChoice() {
+      const source = selectedSource();
+      document.getElementById("choiceCollect").classList.toggle("selected", source === "collect");
+      document.getElementById("choiceUpload").classList.toggle("selected", source === "upload");
+      document.getElementById("uploadRow").classList.toggle("hidden", source !== "upload");
+    }
+    document.querySelectorAll('input[name="runSource"]').forEach((input) => input.addEventListener("change", syncSourceChoice));
+    document.getElementById("backToStart").addEventListener("click", async () => {
+      state = await post("/api/launcher");
+      render();
+    });
+    document.getElementById("createRun").addEventListener("click", async () => {
+      const button = document.getElementById("createRun");
+      const source = selectedSource();
+      const name = document.getElementById("newRunName").value.trim();
+      const fileInput = document.getElementById("zipUpload");
+      const file = fileInput.files && fileInput.files[0];
+      if (source === "upload" && !file) {
+        setLauncherStatus("Select the collector ZIP file to upload.", "error");
+        return;
+      }
+      button.disabled = true;
+      try {
+        setLauncherStatus("Creating run...");
+        state = await post("/api/create-run", { name, source });
+        if (source === "upload" && file) {
+          setLauncherStatus("Uploading " + file.name + "...");
+          const response = await fetch("/api/upload-zip?filename=" + encodeURIComponent(file.name), { method: "POST", headers: { "Content-Type": "application/zip" }, body: file });
+          const json = await response.json();
+          if (!response.ok) throw new Error(json.error || "Upload failed");
+          state = json;
+        }
+        selected = state.currentPhase;
+        render();
+        setUiStatus("Run " + (state.run?.name || state.run?.runId) + " ready.", "success");
+      } catch (error) {
+        setLauncherStatus(error.message, "error");
+      } finally {
+        button.disabled = false;
+      }
+    });
     function renderRuns() {
       const runSelect = document.getElementById("runSelect");
       const runs = state.runs || [];
       runSelect.innerHTML = runs.map((run) => \`<option value="\${esc(run.runId)}" \${run.runId === state.run?.runId ? "selected" : ""}>\${esc(runLabel(run))}</option>\`).join("");
     }
     function render() {
-      document.getElementById("updated").textContent = \`Run \${state.run?.runId || "unknown"} · Last checked \${new Date(state.updatedAt).toLocaleString()}\`;
+      applyView();
+      renderLauncherRuns();
+      document.getElementById("updated").textContent = \`Run \${state.run?.name ? state.run.name + " · " : ""}\${state.run?.runId || "unknown"} · Last checked \${new Date(state.updatedAt).toLocaleString()}\`;
       renderRuns(); renderProgress(); renderSequence(); renderDetail(); renderSelects(); renderWorkspace(); renderLogs(); bindScopeControls();
       const p = currentPhase();
       const topButton = document.getElementById("runSelectedTop");
@@ -1467,6 +1916,7 @@ function renderHtml() {
       const loadResourceGroups = document.getElementById("loadResourceGroups");
       const subscription = document.getElementById("subscription");
       if (loadResourceGroups && subscription) loadResourceGroups.disabled = !subscription.value;
+      autoLoadScope();
     }
     async function runSelectedPhase() {
       const p = currentPhase();
@@ -1567,8 +2017,28 @@ function renderHtml() {
     document.getElementById("runCurrent").addEventListener("click", runSelectedPhase);
     document.getElementById("runAuto").addEventListener("click", async () => { state = await post("/api/run-automatic"); render(); });
     document.getElementById("copyCommand").addEventListener("click", async () => navigator.clipboard.writeText(document.getElementById("command").textContent));
+    document.getElementById("showActivity").addEventListener("click", () => document.getElementById("activityDialog").showModal());
+    document.getElementById("closeActivity").addEventListener("click", () => document.getElementById("activityDialog").close());
+    document.getElementById("termCopy").addEventListener("click", async () => {
+      const text = [...document.querySelectorAll("#stepLogs .term-line")].map((row) => row.querySelector(".term-time").textContent + "  " + row.querySelector(".term-text").textContent).join("\\n");
+      await navigator.clipboard.writeText(text);
+      setUiStatus("Step console copied to the clipboard.", "success");
+    });
+    document.getElementById("termFollow").addEventListener("change", termStick);
+    let stateTimer = null;
     const events = new EventSource("/events");
-    events.onmessage = () => loadState();
+    events.onmessage = (event) => {
+      let payload = null;
+      try { payload = JSON.parse(event.data); } catch { payload = null; }
+      if (payload?.type === "log" && payload.entry) {
+        if (state?.run?.runId && payload.runId && payload.runId !== state.run.runId) return;
+        appendTerminalLine(payload.entry);
+        if (state) { state.logs = [...(state.logs || []), payload.entry].slice(-600); }
+        return;
+      }
+      clearTimeout(stateTimer);
+      stateTimer = setTimeout(loadState, 120);
+    };
     loadState();
   </script>
 </body>
@@ -1629,6 +2099,21 @@ const workflowCanvas = createCanvas({
             description: "Switch the workflow canvas to a previously saved run by runId.",
             inputSchema: { type: "object", properties: { runId: { type: "string" } }, required: ["runId"], additionalProperties: false },
             handler: async (ctx) => requireInstance(ctx.instanceId).switchRun(ctx.input.runId),
+        },
+        {
+            name: "open_launcher",
+            description: "Show the introductory launcher screen with create-new-run and open-existing-run options.",
+            handler: async (ctx) => requireInstance(ctx.instanceId).showLauncher(),
+        },
+        {
+            name: "create_run",
+            description: "Create a named workflow run. Use source 'upload' when a collector ZIP is supplied and the workflow should start at Step 6.",
+            inputSchema: {
+                type: "object",
+                properties: { name: { type: "string" }, source: { type: "string", enum: ["collect", "upload"] } },
+                additionalProperties: false,
+            },
+            handler: async (ctx) => requireInstance(ctx.instanceId).createRun(ctx.input ?? {}),
         },
         {
             name: "get_workflow_state",
