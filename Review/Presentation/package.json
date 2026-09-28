@@ -1,0 +1,10 @@
+{
+  "name": "wordpress-review-presentation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic presentations from existing WordPress Well-Architected reports",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test tests/*.test.mjs" },
+  "dependencies": { "jszip": "3.10.1", "pptxgenjs": "4.0.1" }
+}

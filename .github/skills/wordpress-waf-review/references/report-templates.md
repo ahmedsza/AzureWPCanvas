@@ -2,7 +2,7 @@
 
 Fixed structures for the two Markdown reports and the CSV. Keep heading order, table columns, and the CSV header row exactly as written so reports are comparable across runs and environments.
 
-The fourth output, `well-architected-review.pptx`, is specified in [presentation-template.md](./presentation-template.md).
+The optional presentation, `well-architected-review.pptx`, is specified in [presentation-template.md](./presentation-template.md). It is not required for report completion or the dashboard.
 
 Replace every `<...>` placeholder. Never ship a placeholder or a "TBD" row.
 

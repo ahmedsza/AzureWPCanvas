@@ -1,6 +1,6 @@
 ---
 name: wordpress-waf-review
-description: 'Generate an Azure Well-Architected Framework review for a WordPress on Azure App Service workload from PowerShell collector evidence. USE FOR: "run a WAF review", "assess my WordPress Azure posture", "generate the well-architected report", "score this environment against the WordPress checklist", "build the WAF review deck / slides / presentation", analysing Invoke-CollectWordPressPosture.ps1 / collection-manifest.json output, producing an executive summary plus a detailed report. Produces executive-summary.md (scorecard and key-findings tables), detailed-well-architected-review.md (control-by-control assessment across Reliability, Security, Cost Optimization, Operational Excellence and Performance Efficiency), findings.csv, and well-architected-review.pptx (overview, pillar, controls, findings and plan/gap slides). DO NOT USE FOR: deploying or changing Azure resources, WordPress content/plugin/theme work, Bicep authoring, or reviewing non-WordPress workloads.'
+description: 'Generate an Azure Well-Architected Framework review for a WordPress on Azure App Service workload from PowerShell collector evidence. USE FOR: "run a WAF review", "assess my WordPress Azure posture", "generate the well-architected report", "score this environment against the WordPress checklist", "build the WAF review deck / slides / presentation", analysing Invoke-CollectWordPressPosture.ps1 / collection-manifest.json output, producing an executive summary plus a detailed report. Produces executive-summary.md, detailed-well-architected-review.md, and findings.csv by default. PowerPoint is optional on explicit request, built from existing reports with the reusable executive/detailed generator. DO NOT USE FOR: deploying or changing Azure resources, WordPress content/plugin/theme work, Bicep authoring, or reviewing non-WordPress workloads.'
 argument-hint: 'Collector output directory (or a resource group name to collect first), plus the report output directory'
 ---
 
@@ -12,17 +12,19 @@ Evidence normally comes from [Invoke-CollectWordPressPosture.ps1](../../../Revie
 
 ## Outputs
 
-Always produce all four, in the run's output directory (`Review/reports/<evidence-folder-name>-reports/`):
+Always produce the three written reports in the run's output directory (`Review/reports/<evidence-folder-name>-reports/`). PowerPoint is optional and is generated only on explicit request or from the workflow's optional Step 9:
 
 | File | Audience | Content |
 |---|---|---|
 | `executive-summary.md` | Business and engineering leadership | Scorecard table, top strengths, top risks, prioritised remediation. Tables everywhere; no raw JSON. |
 | `detailed-well-architected-review.md` | Workload owners and engineers | Control-by-control assessment for every applicable checklist ID, with evidence pointers and recommendations. |
 | `findings.csv` | Backlog / tracking import | One row per `Fail` or material `Not verified`, scored 1–5 for severity, effort, risk and cost. |
-| `well-architected-review.pptx` | Review readout and steering audiences | Overview, pillar, controls, findings and plan/gap slides rendered from the three files above. |
+| `well-architected-review.pptx` (optional) | Review readout and steering audiences | Executive (default, 10–15 slides) or detailed readout rendered from the three files above. |
 
 The deck is a presentation of the assessment, never a second assessment. Build it last, from the
-written reports. Skip it only if the user says they do not want slides.
+written reports. Report completion and dashboard availability must never wait for a deck.
+An explicit request for a deck is honored after the reports; otherwise stop after verifying the
+three reports and offer the dashboard.
 
 ## Procedure
 
@@ -98,16 +100,29 @@ Write in this order so the summary is derived from the assessment, not the other
 2. `findings.csv` — rows extracted from the detailed report's `Fail` and material `Not verified` rows.
 3. `executive-summary.md` — rolled up from the detailed report and the CSV.
 
-### 7. Build the presentation deck
+### 7. Build the presentation deck (only when explicitly requested)
 
-Only after the three files above are written. Follow [presentation-template.md](./references/presentation-template.md)
-for the fixed slide order and the bundled `pptx` skill for the PptxGenJS build and QA loop.
+Only after the three files above are written and verified. Use the reusable generator described
+in [presentation-template.md](./references/presentation-template.md), not a new ad hoc build script:
+
+```powershell
+# Once, only if the local generator dependencies are missing:
+npm ci --prefix .\Review\Presentation
+node .\Review\Presentation\generate.mjs --report-dir "<report-directory>" --mode executive
+```
+
+Use `--mode detailed` only when requested. Reuse installed dependencies and cached builds.
+Use `--render-changed` for optional changed-slide visual inspection; it requires Windows
+PowerPoint. Plain generation needs neither PowerPoint nor Python. Load the `pptx` skill when
+working on a requested presentation, but do not recreate this repository's tested layouts.
+Template/layout changes need visual QA; routine unchanged-template runs use built-in validation
+and cache integrity checks rather than repeated full-deck render loops.
 
 Read statuses from the detailed report, scores and priorities from `findings.csv`, and the
 narrative from the executive summary. Never re-derive a status from the evidence JSON here — a
 control that is `Not verified` in the report must not appear as `Fail` on a slide.
 
-If Node.js or `pptxgenjs` cannot be installed, say so and deliver the three report files. Do not
+If Node.js or the generator's pinned dependencies are unavailable, say so and deliver the three report files. Do not
 hand over a partial deck.
 
 ### 8. Verify before handing over
@@ -120,12 +135,12 @@ Check all of the following and fix anything that fails:
 - Every `Fail` has a matching `findings.csv` row, and every CSV row maps to a real control ID.
 - Scores and coverage in `executive-summary.md` equal those in the detailed report.
 - The executive summary names both strengths and risks, and contains no raw JSON, no unresolved placeholders, and no `az` command output.
-- Every slide in the deck's fixed plan is present and in order, and its scores, counts, and finding IDs match the reports exactly.
+- If a deck was requested, its selected executive/detailed plan is present and its scores, counts, and finding IDs match the reports exactly.
 - No score appears anywhere — report, summary, or slide — without its coverage figure.
-- The deck renders without layout defects, and its extracted text contains no evidence file paths or `az` output.
+- If a deck was requested, its automated validation passes; template changes receive visual inspection. Its extracted text contains no evidence file paths or `az` output.
 - No secret, key, connection string, or `SECRET_FOUND_REDACTED` value is reproduced in any output file.
 
-Then report to the user: the four file paths, the overall score **and coverage**, the counts of critical and high findings, and the top three collection gaps that limited the review.
+Then report to the user: the three report paths (plus the deck path only if requested and successfully generated), the overall score **and coverage**, the counts of critical and high findings, and the top three collection gaps that limited the review.
 
 ### 9. Offer the visual dashboard
 

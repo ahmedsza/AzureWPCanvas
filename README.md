@@ -1,12 +1,12 @@
 # Azure WordPress Well-Architected Review Toolkit
 
-> **GitHub Copilot skill and app canvas included:** This repository provides the `wordpress-waf-review` skill for generating an evidence-based Azure Well-Architected review, including a PowerPoint readout, and the `waf-review-dashboard` GitHub Copilot app canvas extension for visualizing generated reports. Ask Copilot Chat to **"Run the WordPress WAF review using evidence in `<evidence-folder>`, build the PowerPoint deck, and open the report dashboard"**. See [SKILLSREADME.md](SKILLSREADME.md) for skill usage and the [dashboard README](.github/extensions/waf-review-dashboard/README.md) for canvas details.
+> **GitHub Copilot skill and app canvases included:** Generate an evidence-based WordPress Well-Architected review, follow the guided workflow, and explore the interactive dashboard. PowerPoint is an optional follow-up, not a prerequisite for viewing results. Ask Copilot Chat to **"Run the WordPress WAF review using evidence in `<evidence-folder>` and open the report dashboard"**. See [SKILLSREADME.md](SKILLSREADME.md) for usage and the [workflow README](.github/extensions/waf-review-workflow/README.md) for the guided experience.
 
 This repository is now focused on **reviewing** a WordPress on Azure App Service workload. It no longer contains deployment templates, operational backup/restore helpers, or bundled sample evidence. Use it to:
 
 - Collect redacted Azure configuration evidence from an existing resource group.
 - Score that evidence against the bundled 157-control WordPress Well-Architected checklist.
-- Generate Markdown, CSV, and PowerPoint review deliverables.
+- Generate Markdown and CSV review deliverables, with an optional PowerPoint readout.
 - Open an interactive dashboard for the generated review output.
 
 ## Repository layout
@@ -14,6 +14,7 @@ This repository is now focused on **reviewing** a WordPress on Azure App Service
 ```
 Review/
   PSScripts/                                          # Evidence collector entry point and per-resource collectors
+  Presentation/                                       # Reusable executive/detailed PowerPoint generator and tests
   README.md                                          # Evidence-collection workflow and collector output details
 .github/skills/wordpress-waf-review/                 # Copilot skill that generates the scored WAF review
   SKILL.md
@@ -36,11 +37,12 @@ A review starts with a deployed WordPress environment in Azure. The environment 
 
 1. **Prepare access.** Install PowerShell 7 and Azure CLI, run `az login`, select the correct subscription, and ensure the signed-in identity has at least `Reader` access. `Monitoring Reader` and `Security Reader` improve evidence coverage.
 2. **Collect evidence.** Run `Review/PSScripts/Invoke-CollectWordPressPosture.ps1` against the deployed resource group. The read-only collector inventories supported Azure resources and writes redacted JSON evidence, including `collection-manifest.json`, to the chosen output directory.
-3. **Generate the review and presentation.** Ask GitHub Copilot to run the `wordpress-waf-review` skill against the evidence directory. The skill assesses the evidence against its bundled [AzureWordPressChecklist.md](.github/skills/wordpress-waf-review/references/AzureWordPressChecklist.md) and writes four outputs to `Review/reports/<evidence-folder-name>-reports/`: `executive-summary.md`, `detailed-well-architected-review.md`, `findings.csv`, and `well-architected-review.pptx`.
+3. **Generate the review.** Run the `wordpress-waf-review` skill against the evidence directory. It assesses the bundled [AzureWordPressChecklist.md](.github/skills/wordpress-waf-review/references/AzureWordPressChecklist.md) and writes three outputs to `Review/reports/<evidence-folder-name>-reports/`: `executive-summary.md`, `detailed-well-architected-review.md`, and `findings.csv`.
 4. **Visualize the report.** Open the included `waf-review-dashboard` canvas in the GitHub Copilot app. It reads the two Markdown files and CSV, then displays score, coverage, pillars, findings, all 157 controls, remediation plan, and collection gaps interactively. The canvas does not read the PPTX, call Azure, modify reports, or recalculate scores.
 5. **Review and act on findings.** Confirm evidence gaps and manually verified controls, prioritize findings, and use the recommendations to plan remediation. Resource changes are not performed by the collector, review skill, or dashboard.
+6. **Optionally generate PowerPoint.** Select Step 9 in the workflow, or run the [presentation generator](Review/Presentation/README.md) against the finished reports. Executive mode defaults to 10–15 slides; detailed mode expands findings. No second assessment is performed.
 
-If you want a visual guide through the full process, open the `waf-review-workflow` canvas first. It models the process as an eight-state sequence diagram: validate dependencies, connect subscription/resource group, pre-assess inventory, collect data, package data, unzip for assessment, run the review skill, and display the dashboard. It supports manual phase approval or automatic execution after Azure scope selection.
+Open the `waf-review-workflow` canvas for eight required steps: validate dependencies, connect scope, inventory, collect, package, extract, assess, and display. A ninth PowerPoint step is optional and never runs automatically. Start a named run, upload an existing collector ZIP, or reopen a previous run.
 
 ```mermaid
 flowchart TD
@@ -51,7 +53,7 @@ flowchart TD
   E --> F[executive-summary.md]
   E --> G[detailed-well-architected-review.md]
   E --> H[findings.csv]
-  E --> I[well-architected-review.pptx]
+  J -. Optional reusable generator .-> I[well-architected-review.pptx]
   F --> J[Open waf-review-dashboard canvas]
   G --> J
   H --> J
@@ -66,7 +68,7 @@ flowchart TD
 - **PowerShell 7+** for the evidence collector.
 - **Azure CLI**, authenticated with `az login`.
 - **Azure RBAC:** `Reader` for most evidence; `Monitoring Reader`, `Security Reader`, and permission to read Key Vault object metadata improve coverage.
-- **For PowerPoint output:** Node.js and `pptxgenjs`. If deck tooling is unavailable, the skill reports the limitation and still delivers the three written report files.
+- **Only for optional PowerPoint:** Node.js and the pinned dependencies installed once with `npm ci --prefix .\Review\Presentation`. Plain generation does not need Python or PowerPoint. Optional `--render-changed` visual exports require PowerPoint on Windows. Missing deck tooling does not block the review.
 
 ## 1. Collect environment evidence
 
@@ -94,7 +96,7 @@ Using existing evidence:
 
 ```text
 Run the wordpress-waf-review skill using evidence in Evidence/<collection-folder>.
-Write all reports and the PowerPoint deck to the default output directory.
+Write the three reports to the default output directory.
 This is a production environment with an RTO of 4 hours and an RPO of 1 hour.
 ```
 
@@ -102,7 +104,7 @@ Collecting evidence first:
 
 ```text
 Run a WAF review for WordPress resource group <resource-group> in subscription <subscription-id>.
-Collect the evidence first, then write the reports and PowerPoint deck.
+Collect the evidence first, then write the three reports.
 ```
 
 The skill generates:
@@ -112,7 +114,17 @@ The skill generates:
 | `executive-summary.md` | Leadership scorecard, evidence coverage, strengths, top risks, and prioritized remediation. |
 | `detailed-well-architected-review.md` | Evidence-backed assessment of every applicable checklist control. |
 | `findings.csv` | One row for every failed or materially unverified control, scored for backlog import. |
-| `well-architected-review.pptx` | Overview, pillar, controls, findings, remediation, and collection-gap slides for review readouts. |
+| `well-architected-review.pptx` (optional) | Executive or detailed readout generated only on request or in Step 9. |
+
+For a deck after the review:
+
+```powershell
+npm ci --prefix .\Review\Presentation # Once, if dependencies are missing
+node .\Review\Presentation\generate.mjs --report-dir ".\Review\reports\<evidence-folder-name>-reports" --mode executive
+```
+
+Use `--mode detailed` for an expanded readout. Identical inputs reuse a validated cached build;
+successful builds replace the deck in the report folder, while failures preserve the previous deck.
 
 See [SKILLSREADME.md](SKILLSREADME.md) for full invocation guidance, defaults, evidence rules, and output expectations.
 
@@ -138,7 +150,7 @@ The dashboard canvas provides Overview, Pillars, Findings, Controls, and Plan & 
 
 | Surface | Location | Status |
 |---|---|---|
-| Skill | [.github/skills/wordpress-waf-review/SKILL.md](.github/skills/wordpress-waf-review/SKILL.md) | Project skill for generating the review reports and deck. |
+| Skill | [.github/skills/wordpress-waf-review/SKILL.md](.github/skills/wordpress-waf-review/SKILL.md) | Review reports by default; optional deck on request. |
 | Canvas extension | [.github/extensions/waf-review-dashboard/](.github/extensions/waf-review-dashboard/) | Project canvas extension for visualizing generated reports. |
 | Canvas extension | [.github/extensions/waf-review-workflow/](.github/extensions/waf-review-workflow/) | Project canvas extension for guiding the end-to-end review workflow. |
 

@@ -1,7 +1,32 @@
 # Presentation template
 
-Fixed structure for `well-architected-review.pptx`. Slide order, titles, and data sources are
-fixed so decks stay comparable across runs and environments.
+Optional presentation contract for `well-architected-review.pptx`. Use the reusable generator in
+`Review/Presentation/`; do not write a new presentation generator for each review.
+
+## Generation and modes
+
+After the three written reports are verified:
+
+```powershell
+npm ci --prefix .\Review\Presentation # One-time dependency setup only
+node .\Review\Presentation\generate.mjs --report-dir "<report-directory>" --mode executive
+```
+
+- **Executive (default):** 10–15 slides summarising context, score with coverage, control
+  disposition, six pillars, major findings, remediation, and collection/manual-verification gaps.
+  It is intentionally not an exhaustive findings readout; the complete backlog remains in CSV.
+- **Detailed (explicit opt-in):** expands findings, control tables, and remediation. All finding
+  references must resolve to the CSV, with confirmed failures distinguished from verification gaps.
+- **Caching:** installed dependencies persist; report contents, mode, template/generator and
+  dependency versions determine reuse. Missing, modified, or corrupt output must be rebuilt.
+- **Optional visual inspection:** append `--render-changed` to render only changed slides.
+  This requires PowerPoint on Windows, unlike normal generation. Layout/template changes need
+  representative visual QA; routine data-only runs use the built-in automated validation.
+- **Failure:** keep the previous published deck and the three reports intact; never publish a
+  partial deck. PowerPoint failure must not block the dashboard.
+
+The implementation and its local README define exact pagination. The detailed specifications
+below are design guidance, not a requirement to expand every executive deck to dozens of slides.
 
 ## Source-of-truth rule
 
@@ -24,7 +49,7 @@ status, or finding directly from the evidence JSON at this stage — a control t
 | File name | `well-architected-review.pptx`, in the same output directory as the reports |
 | Layout | `LAYOUT_WIDE` (13.3" × 7.5") — narrower layouts crowd the control tables |
 | Title | `Azure Well-Architected Review — <workload> (<environment>)` |
-| Subject | `AzureWordPressChecklist.md · 157 controls` |
+| Subject | Checklist name and actual assessed control count (do not hardcode 157 for older reports) |
 | Author | The reviewer name resolved in step 1 of the skill |
 
 ## Design system
@@ -58,9 +83,10 @@ Visual motif: a 0.18" navy bar down the left edge of every content slide, plus a
 carrying `<workload> · <environment> · <review date>` and the slide number. Do not put an accent
 rule under slide titles.
 
-## Slide plan
+## Detailed-mode design guidance
 
-Fixed order. Slide numbers shift only where a section paginates.
+Use the reusable template. Slide numbers shift where a section paginates; this expanded plan is
+not the default executive plan.
 
 | # | Slide | Group |
 |---|---|---|
@@ -117,8 +143,9 @@ slide.addChart(pres.charts.BAR, [
 });
 ```
 
-Beneath the chart, a caption naming the highest and lowest pillar. Never plot score without
-coverage on the same chart.
+Beneath the chart, a caption naming the highest and lowest scored pillar where meaningful.
+Never plot score without coverage on the same chart. Preserve `n/a` scores as unavailable, never
+zero-fill them or average only the scored pillars to manufacture a headline.
 
 Sections 7 and 8 are excluded from this chart — they are reported on slides 11 and the manual
 register slide, and are not part of the six-pillar mean.
@@ -226,7 +253,8 @@ colour. Use `autoPage: true` with `autoPageRepeatHeader: true` so tables break c
 ## Data-integrity rules
 
 - Every score on a slide is accompanied by its coverage figure. No exceptions.
-- Deck totals must equal the detailed report totals exactly: 13 / 17 / 24 / 14 / 17 / 15 / 45 / 12 = 157.
+- Deck totals must equal the detailed report totals exactly. The current checklist has 157 controls;
+  older 152-control reports retain their assessed totals.
 - Overall score and coverage are the unweighted means of Sections 1–6 only.
 - Every finding on a slide maps to a real `FindingId` in `findings.csv`; every control ID is a
   verbatim checklist ID.
@@ -236,17 +264,12 @@ colour. Use `autoPage: true` with `autoPageRepeatHeader: true` so tables break c
 
 ## Build procedure
 
-Follow the bundled `pptx` skill's create-from-scratch path (PptxGenJS) and its QA loop.
-
-1. Confirm tooling: Node.js and `pptxgenjs` (`npm install -g pptxgenjs`). If it cannot be
-   installed, report that plainly and deliver the three report files — never hand over a partial
-   or fabricated deck.
-2. Write the generator to a scratch folder outside the report directory (for example
-   `$env:TEMP/waf-deck/build-deck.js`), reading the report values into constants at the top of the
-   file so they are reviewable in one place. PowerShell has no heredoc — write the script to a file
-   rather than piping multi-line content into an interpreter.
-3. Run it with the output directory as an argument so the `.pptx` lands beside the reports.
-4. Delete the scratch folder once QA passes.
+1. Confirm Node.js and the pinned local dependencies in `Review/Presentation` are available.
+   Install only missing dependencies with `npm ci --prefix .\Review\Presentation`.
+2. Run the reusable CLI with the existing report directory and the selected mode.
+3. Check the final JSON result: `ok`, `outputFile`, `mode`, `slideCount`, `cached`, and `durationMs`.
+4. Keep dependencies and the generator cache for subsequent runs; do not delete them between builds.
+   Do not edit the reports or rerun the assessment merely to generate slides.
 
 PptxGenJS pitfalls that matter here: hex colours never carry `#`, never build an 8-character hex
 for opacity, never reuse an options object between two `addShape` calls, and use `bullet: true`
@@ -254,20 +277,10 @@ rather than a unicode bullet character.
 
 ## QA checklist
 
-Run all of it. Assume there are problems.
-
-1. `python -m markitdown well-architected-review.pptx` — confirm every slide in the plan is
-   present, in order, with no placeholder text.
-2. Cross-check the scorecard, disposition, and finding counts against the detailed report and CSV.
-3. Render to images and inspect with a subagent for overlap, overflow, low contrast, and
-   inconsistent gaps:
-
-   ```bash
-   python scripts/office/soffice.py --headless --convert-to pdf well-architected-review.pptx
-   pdftoppm -jpeg -r 150 well-architected-review.pdf slide
-   ```
-
-4. Grep the extracted text for `SECRET_FOUND_REDACTED`, `sections.`, `.json`, and `az ` — any hit
-   is a defect.
-5. Fix, then re-verify the affected slides. Do not declare success before one full fix-and-verify
-   cycle.
+1. Every build runs the generator's report-integrity and package/text validation before publication.
+2. Preserve score/coverage and `Not verified` distinctions; verify finding references against CSV.
+3. For template/layout changes, render representative slides, inspect fit and contrast, and fix
+   affected layouts. Use `--render-changed` so unchanged slides are not repeatedly exported.
+4. No unsafe evidence text or credentials may appear in slide content or speaker notes.
+5. Run the presentation regression tests after changing parser, templates, caching, or validation.
+   A cache hit still verifies the published output hash; an old result alone is insufficient.

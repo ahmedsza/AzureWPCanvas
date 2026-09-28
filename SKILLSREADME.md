@@ -1,6 +1,6 @@
 # WordPress Well-Architected Review Skill
 
-This repository includes the `wordpress-waf-review` skill for GitHub Copilot. It converts the redacted JSON evidence produced by `Invoke-CollectWordPressPosture.ps1` into a scored Azure Well-Architected Framework review and PowerPoint presentation for WordPress on Azure App Service.
+This repository includes the `wordpress-waf-review` skill for GitHub Copilot. It converts redacted collector evidence into a scored Azure Well-Architected Framework review for WordPress on Azure App Service. PowerPoint is a separate, optional output.
 
 The skill definition is in [.github/skills/wordpress-waf-review/SKILL.md](.github/skills/wordpress-waf-review/SKILL.md).
 
@@ -14,12 +14,12 @@ Open this repository in VS Code, start GitHub Copilot Chat, and enter:
 
 ```text
 Run the wordpress-waf-review skill using evidence in <DIRECTORY WHERE THE EXTRACTED EVIDENCE IS LOCATED>
-Write all reports and the PowerPoint deck to the default output directory.
+Write the three reports to the default output directory.
 ```
 
 The skill reads the evidence, assesses all 157 checklist controls, and writes the result to `Review/reports/<evidence-folder-name>-reports/` unless you request another output directory.
 
-The output directory contains `executive-summary.md`, `detailed-well-architected-review.md`, `findings.csv`, and `well-architected-review.pptx`. 
+The output directory contains `executive-summary.md`, `detailed-well-architected-review.md`, and `findings.csv`. The dashboard is ready immediately; request PowerPoint separately if needed.
 
 ### 2. Open the interactive dashboard (only applies to GitHub Copilot App)
 
@@ -35,7 +35,7 @@ After report generation, ask Copilot Chat:
 Open the WAF review dashboard for the output directory containing the generated reports.
 ```
 
-The `waf-review-workflow` canvas guides the process end to end as an eight-state sequence diagram with manual or automatic execution modes. It validates local prerequisites, helps select the Azure subscription and resource group, pre-assesses the resource inventory, runs collection and extraction steps, then prepares the skill prompt. The `waf-review-dashboard` canvas visualizes the scorecard, pillars, findings, controls, remediation plan, and collection gaps in the GitHub Copilot app.
+The workflow canvas has eight required steps through report generation and dashboard display, plus an optional ninth PowerPoint step. Named runs can start with fresh collection or an uploaded ZIP; previous runs can be reopened. Automatic execution never starts PowerPoint. The dashboard visualizes score, coverage, pillars, findings, controls, remediation, and collection gaps.
 
 ## When to use it
 
@@ -43,7 +43,7 @@ Use the skill to:
 
 - Review a WordPress on Azure App Service workload.
 - Score collected evidence against the repository's WordPress checklist.
-- Generate an executive summary, a complete control-by-control assessment, an importable findings backlog, and a PowerPoint review deck.
+- Generate an executive summary, a full control-by-control assessment, and an importable findings backlog; optionally create a PowerPoint readout.
 
 Do not use it to deploy or modify Azure resources, manage WordPress content, author Bicep, or review non-WordPress workloads.
 
@@ -66,7 +66,7 @@ Collecting fresh evidence requires:
 - At least Azure `Reader`; `Monitoring Reader` and `Security Reader` improve coverage.
 - The Azure resource group and subscription ID confirmed before collection.
 
-PowerPoint generation requires Node.js and `pptxgenjs`. The skill follows the bundled PowerPoint tooling and QA workflow; if the deck tooling cannot be installed, it reports that limitation and still delivers the three written report files rather than a partial deck.
+Optional PowerPoint generation requires Node.js and local dependencies installed once with `npm ci --prefix .\Review\Presentation`. The reusable generator builds executive decks (10–15 slides) by default, or detailed decks on request, and caches unchanged builds. Plain generation needs neither PowerPoint nor Python; optional changed-slide rendering requires Windows PowerPoint. Missing deck tooling never blocks the three reports or dashboard.
 
 The collector is read-only and redacts secret values.
 
@@ -78,7 +78,7 @@ Open this repository in VS Code and ask GitHub Copilot Chat to run a WordPress W
 
 ```text
 Run the wordpress-waf-review skill using evidence in Evidence/<collection-folder>.
-Write the reports and PowerPoint deck to the default output directory.
+Write the three reports to the default output directory.
 This is a production environment with an RTO of 4 hours and an RPO of 1 hour.
 ```
 
@@ -86,14 +86,14 @@ This is a production environment with an RTO of 4 hours and an RPO of 1 hour.
 
 ```text
 Assess the WordPress Azure posture for resource group <resource-group> in subscription <subscription-id>.
-Collect evidence first, then write the WAF reports and PowerPoint deck.
+Collect evidence first, then write the three WAF reports.
 ```
 
 ### Review a collector ZIP file
 
 ```text
 Generate the WordPress Well-Architected review from Evidence/<collector-output>.zip.
-Expand it and write the reports and PowerPoint deck.
+Expand it and write the three reports.
 ```
 
 Include any known workload context in the prompt, especially:
@@ -114,19 +114,20 @@ Unknown context does not block the review; the reports record it as unknown rath
 | Checklist | Defaults to the skill's bundled [AzureWordPressChecklist.md](.github/skills/wordpress-waf-review/references/AzureWordPressChecklist.md). |
 | Output directory | Defaults to `Review/reports/<evidence-folder-name>-reports/`; reruns overwrite that folder rather than creating a numbered variant. |
 | Workload context | Optional, but improves assessment quality and prioritization. |
+| PowerPoint | Opt-in only; executive mode by default, detailed mode on request. |
 
 ## Outputs
 
-The skill creates these four files in the selected output directory unless the user declines slides or PowerPoint tooling is unavailable. `well-architected-review.pptx` is the fourth output:
+The skill creates three reports by default. The fourth file is optional:
 
 | File | Purpose |
 |---|---|
 | `executive-summary.md` | Leadership scorecard, evidence coverage, strengths, top risks, and prioritized remediation. |
 | `detailed-well-architected-review.md` | Assessment of all 157 checklist controls with status, evidence pointers, and recommendations. |
 | `findings.csv` | One row for every failure or material evidence gap, scored for severity, effort, risk, and cost. |
-| `well-architected-review.pptx` | Executive readout with overview, pillar, controls, findings, remediation, manual-validation, and collection-gap slides. |
+| `well-architected-review.pptx` (optional) | Executive or detailed readout built from existing reports, without rerunning the assessment. |
 
-The deck is generated last from the verified Markdown and CSV reports; it presents the assessment and never re-scores the evidence. The final Copilot response reports all output paths, overall score and evidence coverage, critical and high finding counts, and the three most important collection gaps.
+The optional deck uses verified Markdown and CSV reports; it never re-scores evidence. Select Step 9 or explicitly ask for a deck after the review. See [Presentation/README.md](Review/Presentation/README.md) for CLI usage, caching, validation, and changed-slide rendering. The final review response reports generated paths, score with coverage, critical/high finding counts, and key collection gaps.
 
 ## Assessment behavior
 

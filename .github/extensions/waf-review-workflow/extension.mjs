@@ -11,12 +11,12 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createCanvas, CanvasError, joinSession } from "@github/copilot-sdk/extension";
+import { presentationArgs, runPresentation } from "./presentation-runner.mjs";
 
 const instances = new Map();
 let roots = [process.cwd()];
 
 const REPORT_FILES = ["executive-summary.md", "detailed-well-architected-review.md", "findings.csv"];
-const DECK_FILE = "well-architected-review.pptx";
 
 // Ordered artefact milestones the review skill produces. The assessment phase
 // watches for these so the console can show what the skill has finished, what
@@ -26,7 +26,6 @@ const SKILL_MILESTONES = [
     { id: "detailed", label: "Detailed control-by-control review", kind: "file", file: "detailed-well-architected-review.md" },
     { id: "findings", label: "Findings register (CSV)", kind: "file", file: "findings.csv" },
     { id: "summary", label: "Executive summary", kind: "file", file: "executive-summary.md" },
-    { id: "deck", label: "PowerPoint deck", kind: "file", file: DECK_FILE },
 ];
 
 const SKIP_DIRS = new Set([".git", ".idea", ".vscode", "bin", "build", "dist", "node_modules", "obj", "out", "vendor"]);
@@ -39,7 +38,7 @@ const PHASES = [
         icon: "01",
         short: "Local tools",
         automatic: true,
-        detail: "Checks PowerShell 7, Azure CLI, az login, collector script, and Node.js for deck generation.",
+        detail: "Checks PowerShell 7, Azure CLI, az login, and the collector script. Presentation dependencies are only needed for optional Step 9.",
     },
     {
         id: "connect",
@@ -87,7 +86,7 @@ const PHASES = [
         icon: "07",
         short: "Skill",
         automatic: false,
-        detail: "Runs the wordpress-waf-review skill against the extracted evidence folder to generate Markdown, CSV, and PPTX outputs.",
+        detail: "Runs the wordpress-waf-review skill against the extracted evidence folder to generate the two Markdown reports and findings CSV. PowerPoint is separate and optional.",
     },
     {
         id: "display",
@@ -96,6 +95,15 @@ const PHASES = [
         short: "Canvas",
         automatic: false,
         detail: "Opens the waf-review-dashboard canvas against the generated report directory.",
+    },
+    {
+        id: "presentation",
+        title: "PowerPoint (optional)",
+        icon: "09",
+        short: "Executive / detailed",
+        automatic: false,
+        optional: true,
+        detail: "Builds a reusable-template presentation from the finished reports, without rerunning the assessment. Defaults to a short executive deck; detailed findings are optional.",
     },
 ];
 
@@ -122,6 +130,13 @@ async function isFile(file) {
     } catch {
         return false;
     }
+}
+
+async function isReportFile(file) {
+    try {
+        const info = await stat(file);
+        return info.isFile() && info.size > 0;
+    } catch { return false; }
 }
 
 async function isDirectory(dir) {
@@ -182,7 +197,7 @@ async function discoverReports() {
     for (const dir of dirs) {
         const files = [];
         for (const name of REPORT_FILES) {
-            if (await isFile(path.join(dir, name))) files.push(name);
+            if (await isReportFile(path.join(dir, name))) files.push(name);
         }
         if (files.length === 0) continue;
         let modified = null;
@@ -240,6 +255,8 @@ function normalizeInput(input = {}, { partial = false } = {}) {
     set("environment", clean(input.environment));
     set("rto", clean(input.rto));
     set("rpo", clean(input.rpo));
+    set("deckMode", input.deckMode === "detailed" ? "detailed" : "executive");
+    set("renderChanged", input.renderChanged === true);
     return normalized;
 }
 
@@ -266,7 +283,8 @@ function emptyRun(input = {}) {
 
 function runSummary(run) {
     const outputs = run.outputs ?? {};
-    const completed = Object.values(outputs).filter((value) => value && value.ok === true).length;
+    const required = PHASES.filter((phase) => !phase.optional);
+    const completed = required.filter((phase) => outputs[phaseOutputKey(phase.id)]?.ok === true).length;
     return {
         runId: run.runId,
         name: run.name || "",
@@ -279,7 +297,8 @@ function runSummary(run) {
         reportDir: run.input?.reportDir ? relativePath(run.input.reportDir) : "",
         logCount: run.logs?.length ?? 0,
         completedSteps: completed,
-        totalSteps: PHASES.length,
+        totalSteps: required.length,
+        presentationGenerated: outputs.presentation?.ok === true,
     };
 }
 
@@ -443,8 +462,9 @@ function phaseCommands(input, discovered, outputs) {
         collect: `.\\Review\\PSScripts\\Invoke-CollectWordPressPosture.ps1 -Subscription "${sub}" -ResourceGroup "${rg}" -OutputDirectory ".\\${evidence}"`,
         package: `Collector package: ${zip}`,
         prepareAssessment: `Expand-Archive -LiteralPath ".\\${zip}" -DestinationPath ".\\Evidence\\Extracted" -Force`,
-        reviewPrompt: `/wordpress-waf-review Run the WordPress Well-Architected Framework review using evidence in ${extracted}.\nWrite all reports and the PowerPoint deck to the default output directory.${context ? `\n${context}` : ""}`,
+        reviewPrompt: `/wordpress-waf-review Run the WordPress Well-Architected Framework review using evidence in ${extracted}.\nWrite only executive-summary.md, detailed-well-architected-review.md, and findings.csv to the default output directory. Do not generate PowerPoint; it is an optional separate workflow step.${context ? `\n${context}` : ""}`,
         dashboard: `open_canvas({ canvasId: "waf-review-dashboard", instanceId: "waf-review", input: { reportDir: "${report}" } })`,
+        presentation: `node .\\Review\\Presentation\\generate.mjs --report-dir ${JSON.stringify(report)} --mode ${input.deckMode === "detailed" ? "detailed" : "executive"}${input.renderChanged ? " --render-changed" : ""}`,
     };
 }
 
@@ -460,16 +480,23 @@ function matchingRunZip(input, discovered, outputs) {
 function statusFromOutput(phase, input, discovered, outputs, runningPhase) {
     if (runningPhase === phase.id) return { status: "running", recorded: true };
     const record = outputs[phaseOutputKey(phase.id)];
+    const reportsReady = discovered.reports.some((report) => report.complete);
+    if (phase.id === "assessment") {
+        if (reportsReady) return { status: "done", recorded: Boolean(record) };
+        if (record?.waitingForSkill) return { status: "running", recorded: true };
+        if (record?.ok === true) return { status: "pending", recorded: false };
+    }
+    if (phase.id === "presentation" && record?.ok === true && (record.mode !== input.deckMode || record.renderChanged !== input.renderChanged)) {
+        return { status: "pending", recorded: false };
+    }
     if (record?.ok === false) return { status: "failed", recorded: true };
     if (record?.ok === true) return { status: "done", recorded: true };
     if (phase.id === "connect" && input.subscription && input.resourceGroup) return { status: "done", recorded: true };
-    if (phase.id === "assessment" && outputs.assessment?.waitingForSkill) return { status: "ready", recorded: true };
     // Statuses below are inferred from artifacts discovered on disk rather than
     // from this run's own history. They are only trustworthy once every earlier
     // step has completed, so they are marked unrecorded and re-gated later.
     if (phase.id === "package" && matchingRunZip(input, discovered, outputs)) return { status: "done", recorded: false };
-    if (phase.id === "assessment" && discovered.reports.length > 0) return { status: "done", recorded: false };
-    if (phase.id === "display" && discovered.reports.length > 0) return { status: "ready", recorded: false };
+    if (phase.id === "display" && reportsReady) return { status: "ready", recorded: false };
     return { status: "pending", recorded: false };
 }
 
@@ -490,15 +517,15 @@ function derivePhaseState(input, discovered, outputs, runningPhase) {
     return raw.map(({ recorded, ...phase }) => {
         const openForThisPhase = gateOpen;
         const upstreamFailed = failedUpstream;
-        const settledHere = phase.status === "done" && (recorded || openForThisPhase);
+        const settledHere = phase.status === "done" && openForThisPhase;
 
         if (phase.status === "failed") failedUpstream = true;
         if (!settledHere) gateOpen = false;
 
-        if (phase.status === "running" || phase.status === "failed") return phase;
-        if (settledHere) return phase;
         if (upstreamFailed) return { ...phase, status: "blocked" };
         if (!openForThisPhase) return { ...phase, status: "pending" };
+        if (phase.status === "running" || phase.status === "failed") return phase;
+        if (settledHere) return phase;
         return { ...phase, status: phase.status === "ready" ? "ready" : "current" };
     });
 }
@@ -525,7 +552,7 @@ async function buildDiscovery(input, outputs) {
     }
     if (input.reportDir && (await isDirectory(input.reportDir))) {
         const files = [];
-        for (const file of REPORT_FILES) if (await isFile(path.join(input.reportDir, file))) files.push(file);
+        for (const file of REPORT_FILES) if (await isReportFile(path.join(input.reportDir, file))) files.push(file);
         discovered.reports.unshift({ dir: input.reportDir, label: relativePath(input.reportDir), files, complete: files.length === REPORT_FILES.length, modified: null });
     }
     discovered.reports = matchingRunReports(input, discovered, outputs);
@@ -546,7 +573,7 @@ function matchingRunReports(input, discovered, outputs) {
         const dir = report.dir ? path.resolve(report.dir) : "";
         if (explicit && dir === explicit) return true;
         if (!evidenceName) return false;
-        return path.basename(dir || report.label || "").startsWith(evidenceName);
+        return path.basename(dir || report.label || "") === `${evidenceName}-reports`;
     });
 }
 
@@ -650,6 +677,7 @@ class WorkflowInstance {
     }
 
     useRun(run) {
+        this.stopSkillWatch();
         this.currentRun = {
             ...emptyRun({ runId: run.runId, createdAt: run.createdAt }),
             ...run,
@@ -692,6 +720,7 @@ class WorkflowInstance {
     }
 
     async resetRun() {
+        if (this.runningPhase) throw new CanvasError("phase_running", "Wait for the current command to finish before changing runs.");
         await this.loadRuns();
         await this.persistRuns();
         const carryForward = {
@@ -710,6 +739,7 @@ class WorkflowInstance {
     }
 
     async switchRun(runId) {
+        if (this.runningPhase) throw new CanvasError("phase_running", "Wait for the current command to finish before changing runs.");
         await this.loadRuns();
         const run = this.runs.find((candidate) => candidate.runId === runId);
         if (!run) throw new CanvasError("run_unknown", `No workflow run found for "${runId}".`);
@@ -732,6 +762,7 @@ class WorkflowInstance {
     }
 
     async createRun(options = {}) {
+        if (this.runningPhase) throw new CanvasError("phase_running", "Wait for the current command to finish before changing runs.");
         await this.loadRuns();
         await this.persistRuns();
         const source = options.source === "upload" ? "upload" : "collect";
@@ -788,6 +819,7 @@ class WorkflowInstance {
 
     async refresh(input = null) {
         await this.loadRuns();
+        if (input && this.runningPhase && Object.keys(input).length) throw new CanvasError("phase_running", "Wait for the current command to finish before changing its inputs.");
         if (input) this.input = { ...this.input, ...normalizeInput(input, { partial: true }) };
         await this.enrichPreparedEvidence();
         this.resumeSkillWatch();
@@ -852,7 +884,7 @@ class WorkflowInstance {
     }
 
     snapshot() {
-        return this.state;
+        return this.state ? { ...this.state, logs: this.logs, skill: this.skillProgress() } : this.state;
     }
 
     async listSubscriptions() {
@@ -873,6 +905,7 @@ class WorkflowInstance {
     }
 
     async setScope(input = {}) {
+        if (this.runningPhase) throw new CanvasError("phase_running", "Wait for the current command to finish before changing scope.");
         if (input.subscription) this.input.subscription = input.subscription;
         if (input.resourceGroup) this.input.resourceGroup = input.resourceGroup;
         if (input.mode === "automatic" || input.mode === "manual") this.input.mode = input.mode;
@@ -881,20 +914,36 @@ class WorkflowInstance {
         return this.refresh();
     }
 
-    async runPhase(phaseId) {
+    async runPhase(phaseId, options = {}) {
         if (this.runningPhase) throw new CanvasError("phase_running", `Phase "${this.runningPhase}" is already running.`);
         const phase = PHASES.find((item) => item.id === phaseId);
         if (!phase) throw new CanvasError("phase_unknown", `Unknown phase "${phaseId}".`);
-
+        await this.refresh();
+        if (this.runningPhase) throw new CanvasError("phase_running", "Another command has already started.");
+        const index = PHASES.findIndex((item) => item.id === phaseId);
+        if (this.state.phases.slice(0, index).some((item) => item.status !== "done")) {
+            throw new CanvasError("phase_locked", "Complete the previous steps before running this step.");
+        }
+        if (phaseId === "assessment" && this.outputs.assessment?.waitingForSkill && !this.state.discovered.reports.some((report) => report.complete)) {
+            throw new CanvasError("skill_running", "The review skill is already running; follow its progress in the step console.");
+        }
+        if (phaseId === "presentation") {
+            const mode = options.deckMode ?? this.input.deckMode;
+            if (!["executive", "detailed"].includes(mode)) throw new CanvasError("mode_invalid", "Choose executive or detailed PowerPoint mode.");
+            if (options.renderChanged !== undefined && typeof options.renderChanged !== "boolean") throw new CanvasError("render_invalid", "renderChanged must be a boolean.");
+            this.input.deckMode = mode;
+            this.input.renderChanged = options.renderChanged ?? this.input.renderChanged;
+        }
         this.runningPhase = phaseId;
         this.addLog(phaseId, `Starting ${phase.title}.`, "start");
-        await this.refresh();
 
         try {
+            await this.refresh();
             const result = await this.executePhase(phaseId);
             const waiting = result?.waitingForSkill === true;
             this.outputs[phaseOutputKey(phaseId)] = { ok: !waiting, ...result };
-            this.addLog(phaseId, waiting ? `Skill request was sent to Copilot. Refresh this step after the reports are generated.` : `Completed ${phase.title}.`, waiting ? "warn" : "success");
+            const failed = !waiting && result?.ok === false;
+            this.addLog(phaseId, waiting ? "Skill request sent. Watching the three reports; PowerPoint will not delay the dashboard." : failed ? `${phase.title} needs attention. See the checks above.` : `Completed ${phase.title}.`, waiting ? "info" : failed ? "error" : "success");
         } catch (cause) {
             this.outputs[phaseOutputKey(phaseId)] = { ok: false, error: cause.message };
             this.addLog(phaseId, `Failed: ${cause.message}`, "error");
@@ -909,7 +958,8 @@ class WorkflowInstance {
 
     async executePhase(phaseId) {
         if (phaseId === "dependencies") {
-            return { result: await runPowerShell("Test-WafReviewPrerequisites.ps1", [], (line, stream) => this.addLog(phaseId, line, stream === "stderr" ? "stderr" : "info")) };
+            const result = await runPowerShell("Test-WafReviewPrerequisites.ps1", [], (line, stream) => this.addLog(phaseId, line, stream === "stderr" ? "stderr" : "info"));
+            return { ok: result.ok === true, result };
         }
         if (phaseId === "connect") {
             if (!this.input.subscription || !this.input.resourceGroup) {
@@ -962,7 +1012,8 @@ class WorkflowInstance {
         }
         if (phaseId === "assessment") {
             const discovered = await buildDiscovery(this.input, this.outputs);
-            if (discovered.reports.length > 0) return { reportDir: discovered.reports[0].dir, prompt: this.state?.commands?.reviewPrompt };
+            const ready = discovered.reports.find((report) => report.complete);
+            if (ready) return { reportDir: ready.dir, prompt: this.state?.commands?.reviewPrompt };
             const prompt = this.state?.commands?.reviewPrompt || phaseCommands(this.input, discovered, this.outputs).reviewPrompt;
             const evidenceDir = this.input.evidenceDir || this.outputs.prepare_assessment?.evidenceDir;
             if (!evidenceDir) throw new Error("Run Step 6 first so the collector ZIP is extracted before assessment.");
@@ -971,18 +1022,36 @@ class WorkflowInstance {
             this.addLog(phaseId, `Expecting reports in ${relativePath(expectedReportDir)}`);
             this.addLog(phaseId, `Watching for ${SKILL_MILESTONES.length} artefacts. Agent activity will stream here as the skill runs.`);
             const messageId = await session.send({ prompt });
-            this.startSkillWatch(expectedReportDir);
             return { waitingForSkill: true, skillSubmitted: true, submittedAt: new Date().toISOString(), messageId, prompt, evidenceDir, expectedReportDir };
         }
         if (phaseId === "display") {
             const discovered = await buildDiscovery(this.input, this.outputs);
-            const reports = discovered.reports;
+            const reports = discovered.reports.filter((report) => report.complete);
             if (reports.length === 0) throw new Error("No report directory was found for this run. Run the assessment skill first.");
             this.input.reportDir = reports[0].dir;
             const dashboardCommand = phaseCommands(this.input, await buildDiscovery(this.input, this.outputs), this.outputs).dashboard;
             const prompt = `Open the WAF review dashboard canvas for the generated report directory.\n\nUse this exact tool call:\n${dashboardCommand}`;
             const messageId = await session.send({ prompt });
             return { reportDir: reports[0].dir, dashboardCommand, dashboardSubmitted: true, submittedAt: new Date().toISOString(), messageId };
+        }
+        if (phaseId === "presentation") {
+            const discovered = await buildDiscovery(this.input, this.outputs);
+            const report = discovered.reports.find((item) => item.complete);
+            if (!report) throw new Error("All three report files are required before generating PowerPoint.");
+            const args = presentationArgs(roots[0], report.dir, this.input.deckMode, this.input.renderChanged);
+            this.addLog(phaseId, `Building ${this.input.deckMode} PowerPoint from existing reports; the assessment will not run again.`, "start");
+            try {
+                const result = await runPresentation(args, {
+                    cwd: roots[0],
+                    env: childProcessEnv(),
+                    onLine: (line, stream) => this.addLog(phaseId, line, stream === "stderr" ? "stderr" : "info"),
+                    onChild: (child) => { this.presentationChild = child; },
+                });
+                if (!(await isReportFile(result.outputFile))) throw new Error("The generator reported a deck, but the output file is missing or empty.");
+                return { ...result, reportDir: report.dir, renderChanged: this.input.renderChanged, completedAt: new Date().toISOString() };
+            } finally {
+                this.presentationChild = null;
+            }
         }
         return {};
     }
@@ -1031,6 +1100,10 @@ class WorkflowInstance {
     // while the skill is still working, so progress is never lost.
     resumeSkillWatch() {
         const out = this.outputs.assessment;
+        if (out?.waitingForSkill && !out.expectedReportDir) {
+            const evidenceDir = out.evidenceDir || this.outputs.prepare_assessment?.evidenceDir || this.input.evidenceDir;
+            if (evidenceDir) out.expectedReportDir = expectedReportDirFor(evidenceDir);
+        }
         if (out?.waitingForSkill && out.expectedReportDir && !this.skillWatch) {
             this.startSkillWatch(out.expectedReportDir);
         } else if (!out?.waitingForSkill && this.skillWatch) {
@@ -1063,6 +1136,9 @@ class WorkflowInstance {
     }
 
     async pollSkillMilestones() {
+        if (this.skillPollBusy) return;
+        this.skillPollBusy = true;
+        try {
         if (this.skillWatchRunId && this.currentRun?.runId !== this.skillWatchRunId) {
             this.stopSkillWatch();
             return;
@@ -1080,8 +1156,9 @@ class WorkflowInstance {
         for (const milestone of SKILL_MILESTONES) {
             if (out.milestonesSeen[milestone.id]) continue;
             const target = milestone.kind === "dir" ? dir : path.join(dir, milestone.file);
-            const exists = milestone.kind === "dir" ? await isDirectory(target) : await isFile(target);
-            if (!exists) break; // milestones are ordered; stop at the first gap
+            const exists = milestone.kind === "dir" ? await isDirectory(target) : await isReportFile(target);
+            if (this.outputs.assessment !== out) return;
+            if (!exists) continue;
             out.milestonesSeen[milestone.id] = new Date().toISOString();
             changed = true;
             this.addLog("assessment", `${milestone.label} — ready.`, "success");
@@ -1094,15 +1171,16 @@ class WorkflowInstance {
             out.reportDir = dir;
             this.input.reportDir = dir;
             this.stopSkillWatch();
-            this.addLog("assessment", `Review skill finished. All ${SKILL_MILESTONES.length} artefacts present in ${relativePath(dir)}.`, "success");
+            this.addLog("assessment", `The three reports are ready in ${relativePath(dir)}. Open the dashboard now; PowerPoint is optional in Step 9.`, "success");
             changed = true;
         }
         if (changed) await this.refresh();
+        } finally { this.skillPollBusy = false; }
     }
 
     async runNext() {
         if (!this.state) await this.refresh();
-        const next = this.state.phases.find((phase) => ["current", "ready"].includes(phase.status));
+        const next = this.state.phases.find((phase) => !phase.optional && ["current", "ready"].includes(phase.status));
         if (!next) return this.snapshot();
         return this.runPhase(next.id);
     }
@@ -1111,7 +1189,7 @@ class WorkflowInstance {
         this.input.mode = "automatic";
         await this.refresh();
         for (;;) {
-            const next = this.state.phases.find((phase) => ["current", "ready"].includes(phase.status));
+            const next = this.state.phases.find((phase) => !phase.optional && ["current", "ready"].includes(phase.status));
             if (!next) return this.snapshot();
             if (next.id === "connect") return this.snapshot();
             await this.runPhase(next.id);
@@ -1136,6 +1214,7 @@ class WorkflowInstance {
 
     async stop() {
         this.stopSkillWatch();
+        this.presentationChild?.kill();
         for (const client of this.clients) {
             try {
                 client.end();
@@ -1236,7 +1315,7 @@ class WorkflowInstance {
         }
         if (url.pathname === "/api/run-phase" && req.method === "POST") {
             const body = await readBody(req);
-            sendJson(res, 200, await this.runPhase(body.phaseId));
+            sendJson(res, 200, await this.runPhase(body.phaseId, body));
             return;
         }
         if (url.pathname === "/api/run-next" && req.method === "POST") {
@@ -1483,7 +1562,7 @@ function renderHtml() {
           </label>
           <label class="choice selected" id="choiceCollect">
             <input type="radio" name="runSource" value="collect" checked />
-            <span><strong>Brand new run</strong><span>Run all eight steps here: validate tools, connect to Azure, collect evidence, package, extract, assess, display.</span></span>
+            <span><strong>Brand new run</strong><span>Complete eight review steps here, then optionally build a PowerPoint presentation.</span></span>
           </label>
           <label class="choice" id="choiceUpload">
             <input type="radio" name="runSource" value="upload" />
@@ -1506,7 +1585,7 @@ function renderHtml() {
     <div class="hero">
       <div class="hero-title">
         <h1>WordPress WAF review workflow</h1>
-        <p class="muted">Eight-state sequence: validate tools, connect Azure scope, pre-assess, collect, package, unzip, assess, display.</p>
+        <p class="muted">Eight review steps: validate, connect, inventory, collect, package, unzip, assess, dashboard. Optional Step 9: PowerPoint.</p>
       </div>
       <div class="toolbar">
         <div class="run-controls">
@@ -1567,8 +1646,8 @@ function renderHtml() {
     let state = null;
     let selected = null;
     const labels = { done: "Done", running: "Running", current: "Ready to run", ready: "Ready to run", pending: "Waiting", blocked: "Blocked", failed: "Failed" };
-    const commandKey = { dependencies: "dependencies", connect: "connect", preassess: "preassess", collect: "collect", package: "package", "prepare-assessment": "prepareAssessment", assessment: "reviewPrompt", display: "dashboard" };
-    const phaseGlyphs = { dependencies: "✓", connect: "☁️", preassess: "🔎", collect: "📥", package: "📦", "prepare-assessment": "🗂️", assessment: "🧠", display: "📊" };
+    const commandKey = { dependencies: "dependencies", connect: "connect", preassess: "preassess", collect: "collect", package: "package", "prepare-assessment": "prepareAssessment", assessment: "reviewPrompt", display: "dashboard", presentation: "presentation" };
+    const phaseGlyphs = { dependencies: "✓", connect: "☁️", preassess: "🔎", collect: "📥", package: "📦", "prepare-assessment": "🗂️", assessment: "🧠", display: "📊", presentation: "▤" };
     const esc = (v) => String(v ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
     async function post(url, body = {}) {
       const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -1593,11 +1672,13 @@ function renderHtml() {
       selected = selected || state.currentPhase;
       render();
     }
-    function doneCount() { return state.phases.filter((p) => p.status === "done").length; }
+    function reportsReady() { return state.discovered.reports.some((report) => report.complete); }
+    function doneCount() { return state.phases.filter((p) => !p.optional && p.status === "done").length; }
+    function canRun(p) { return ["current", "ready", "done", "failed"].includes(p.status) && !state.phases.some((phase) => phase.status === "running"); }
     function currentPhase() { return state.phases.find((p) => p.id === selected) || state.phases.find((p) => p.id === state.currentPhase) || state.phases[0]; }
     function renderProgress() {
       const done = doneCount();
-      const total = state.phases.length;
+      const total = state.phases.filter((p) => !p.optional).length;
       const pct = Math.round((done / total) * 100);
       const phase = state.phases.find((p) => p.id === state.currentPhase) || state.phases[0];
       const el = document.getElementById("progress");
@@ -1605,14 +1686,14 @@ function renderHtml() {
       el.style.setProperty("--deg", Math.round(pct * 3.6) + "deg");
       el.innerHTML = \`
         <div class="ring"><strong>\${pct}%</strong></div>
-        <div><h2>\${done}/\${total} complete</h2><p class="muted">Current: \${esc(phase.title)}</p><div class="bar"><span></span></div></div>\`;
+        <div><h2>\${done}/\${total} review steps complete</h2><p class="muted">\${done === total ? "Review complete. PowerPoint is optional." : "Current: " + esc(phase.title)}</p><div class="bar"><span></span></div></div>\`;
     }
     function renderSequence() {
       document.getElementById("sequence").innerHTML = state.phases.map((p) => \`
         <div class="phase" role="button" tabindex="0" data-id="\${p.id}" data-status="\${p.status}" aria-pressed="\${selected === p.id}">
           <div class="node"><span class="glyph">\${phaseGlyphs[p.id] || esc(p.icon)}</span></div>
           <div class="phase-main">
-            <span class="badge \${p.status}">Step \${esc(p.icon)} · \${esc(labels[p.status] || p.status)}</span>
+            <span class="badge \${p.status}">Step \${esc(p.icon)}\${p.optional ? " · Optional" : ""} · \${esc(labels[p.status] || p.status)}</span>
             <h3>\${esc(p.title)}</h3>
             <strong class="muted">\${esc(p.short)}</strong>
             <p class="muted">\${esc(p.detail)}</p>
@@ -1642,7 +1723,7 @@ function renderHtml() {
     }
     function renderPhaseRunButton(p) {
       if (p.status === "running") return '<button type="button" class="phase-action" disabled>Running...</button>';
-      if (["current", "ready", "done", "failed"].includes(p.status)) {
+      if (canRun(p)) {
         const label = p.status === "done" ? "Run again" : "Run this step";
         const cls = p.status === "done" ? "phase-action done" : "phase-action";
         return \`<button type="button" class="\${cls}" data-id="\${p.id}">\${label}</button>\`;
@@ -1700,14 +1781,15 @@ function renderHtml() {
       }
       if (p.id === "prepare-assessment") return \`<div class="phase-inline">\${miniCheck(out.evidenceDir, "Manifest ready", ran)}</div>\`;
       if (p.id === "assessment") {
-        const waiting = out.waitingForSkill && !state.discovered.reports.length;
+        const waiting = out.waitingForSkill && !reportsReady();
         if (waiting) {
           const skill = state.skill || { done: 0, total: 0 };
           return \`<div class="phase-inline"><div class="mini-check idle"><span class="mini-mark">…</span><span>Skill running — \${skill.done}/\${skill.total} artefacts\${skill.activity ? ": " + esc(skill.activity) : ""}</span></div><div class="run-bar"><span></span></div></div>\`;
         }
-        return \`<div class="phase-inline">\${miniCheck(state.discovered.reports.length, state.discovered.reports.length ? "Reports generated" : ran ? "Reports not generated" : "Not run yet", ran)}</div>\`;
+        return \`<div class="phase-inline">\${miniCheck(reportsReady(), reportsReady() ? "Three reports ready" : "Waiting for all three reports", out.ok === false && !out.waitingForSkill)}</div>\`;
       }
-      if (p.id === "display") return \`<div class="phase-inline">\${miniCheck(state.discovered.reports.length, "Dashboard source", ran)}</div>\`;
+      if (p.id === "display") return \`<div class="phase-inline">\${miniCheck(reportsReady(), "Dashboard source", ran)}</div>\`;
+      if (p.id === "presentation") return \`<div class="phase-inline">\${renderRunningInline(p)}<span class="muted">\${out.ok ? esc((out.mode || "Executive") + " · " + out.slideCount + " slides" + (out.cached ? " · cached" : "")) : "Optional — does not block review completion"}</span></div>\`;
       return "";
     }
     function renderRunningInline(p) {
@@ -1724,8 +1806,9 @@ function renderHtml() {
       document.getElementById("detail").innerHTML = \`
         <div class="detail-head"><div class="node"><span class="glyph">\${phaseGlyphs[p.id] || esc(p.icon)}</span></div><div><span class="badge \${p.status}">Step \${esc(p.icon)} · \${esc(labels[p.status] || p.status)}</span><h2>\${esc(p.title)}</h2><p>\${esc(p.detail)}</p></div></div>
         \${p.id === "connect" ? renderScopeControls() : ""}
+        \${p.id === "presentation" ? renderPresentationControls(p) : ""}
         <div class="detail-actions">
-          <button id="runSelectedInDetail" class="primary" \${["running", "blocked", "pending"].includes(p.status) ? "disabled" : ""}>Run this step</button>
+          <button id="runSelectedInDetail" class="primary" \${canRun(p) ? "" : "disabled"}>\${p.id === "presentation" ? "Generate PowerPoint" : "Run this step"}</button>
           <button id="copySelectedInDetail">Copy instruction</button>
         </div>
       \`;
@@ -1734,12 +1817,30 @@ function renderHtml() {
         <div class="item"><strong>Execution mode</strong><span class="muted">\${esc(state.mode === "automatic" ? "Automatic after scope" : "Manual approval between phases")}</span></div>
         \${p.id !== "connect" ? \`<div class="item"><strong>Selected scope</strong><span class="muted">\${esc(state.context.subscription || "No subscription")} / \${esc(state.context.resourceGroup || "No resource group")}</span></div>\` : ""}
         \${out.error && !(p.id === "package" && packageZipLabel()) ? \`<div class="item"><strong>Last error</strong><span class="muted">\${esc(out.error)}</span></div>\` : ""}
-        \${out.prompt ? \`<div class="item"><strong>Skill request</strong><span class="muted">\${esc(out.skillSubmitted ? "Sent to Copilot. Refresh this step after the reports are generated." : "Ready to send to Copilot from this step.")}</span></div>\` : ""}
+        \${out.prompt ? \`<div class="item"><strong>Skill request</strong><span class="muted">\${esc(out.skillSubmitted ? "Sent to Copilot. This step updates as the three reports arrive." : "Ready to send to Copilot from this step.")}</span></div>\` : ""}
         \${renderPhaseVisual(p, out)}
       \`;
       document.getElementById("command").textContent = state.commands[commandKey[p.id]] || "";
       document.getElementById("runSelectedInDetail").addEventListener("click", () => runSelectedPhase());
       document.getElementById("copySelectedInDetail").addEventListener("click", () => navigator.clipboard.writeText(document.getElementById("command").textContent));
+      for (const id of ["deckMode", "renderChanged"]) document.getElementById(id)?.addEventListener("change", async () => {
+        try {
+          state = await post("/api/refresh", { deckMode: document.getElementById("deckMode").value, renderChanged: document.getElementById("renderChanged").checked });
+          render();
+        } catch (error) { setUiStatus(error.message, "error"); }
+      });
+    }
+    function renderPresentationControls(p) {
+      const disabled = canRun(p) ? "" : "disabled";
+      return \`<section class="scope">
+        <label>Presentation length<select id="deckMode" \${disabled}>
+          <option value="executive" \${state.context.deckMode !== "detailed" ? "selected" : ""}>Executive — 10–15 slides (default)</option>
+          <option value="detailed" \${state.context.deckMode === "detailed" ? "selected" : ""}>Detailed — includes findings and remediation</option>
+        </select></label>
+        <label><input type="checkbox" id="renderChanged" \${state.context.renderChanged ? "checked" : ""} \${disabled} /> Render changed slides for visual inspection (optional)</label>
+        <p class="muted">Uses the existing reports and a tested template. Unchanged builds reuse cached results. Rendering needs PowerPoint on Windows; plain generation does not.</p>
+        <p class="muted">One-time setup: <code>npm ci --prefix Review&#92;Presentation</code>. A successful build replaces the deck in this report folder.</p>
+      </section>\`;
     }
     function renderScopeControls() {
       return \`<section class="scope">
@@ -1762,6 +1863,11 @@ function renderHtml() {
       if (p.id === "prepare-assessment") return renderPrepareAssessmentVisual(out);
       if (p.id === "assessment") return renderAssessmentVisual(out);
       if (p.id === "display") return renderDisplayVisual(out);
+      if (p.id === "presentation") return \`<div class="list">
+        <div class="item"><strong>Optional output</strong><span class="muted">well-architected-review.pptx — not required for the dashboard</span></div>
+        <div class="item"><strong>Last build</strong><span class="muted">\${out.ok ? esc(out.mode + " · " + out.slideCount + " slides · " + (out.cached ? "cache reused" : "generated") + (Number.isFinite(out.durationMs) ? " · " + (out.durationMs / 1000).toFixed(1) + "s" : "")) : "Not generated by this step"}</span></div>
+        \${out.outputFile ? \`<div class="item"><strong>File</strong><span class="muted">\${esc(out.outputFile)}</span></div>\` : ""}
+      </div>\`;
       return "";
     }
     function stepRan(id) {
@@ -1846,17 +1952,17 @@ function renderHtml() {
           \${skill.activity ? \`<div class="skill-activity"><span class="muted">Current activity</span><code>\${esc(skill.activity)}</code></div>\` : ""}
           \${skill.waiting ? '<span class="muted">The skill is running in the chat. This panel and the step console update as it works.</span>' : ""}
         </div>
-        \${checkCard("Reports", state.discovered.reports.length, out.reportDir ? "Reports found at " + out.reportDir : "Not generated yet", stepRan("assessment"))}
+        \${checkCard("Reports", reportsReady(), reportsReady() ? "Three reports ready — PowerPoint is optional" : "Waiting for the three report files", out.ok === false && !out.waitingForSkill)}
         <div class="item"><strong>Skill input from Step 6</strong><span class="muted">\${esc(step7Input || "Run Step 6 first to extract the collector ZIP.")}</span></div>
         <div class="item"><strong>Evidence JSON check</strong><span class="muted">\${esc(state.outputs.prepare_assessment?.jsonFileCount ? state.outputs.prepare_assessment.jsonFileCount + " JSON files verified in Step 6" : "Step 6 has not verified JSON files yet.")}</span></div>
         \${out.skillSubmitted ? \`<div class="item"><strong>Submitted</strong><span class="muted">\${esc(out.submittedAt ? new Date(out.submittedAt).toLocaleString() : "Skill request sent to Copilot.")}</span></div>\` : ""}
-        <div class="item"><strong>Next action</strong><span class="muted">\${esc(state.discovered.reports.length ? "Assessment outputs are ready." : out.skillSubmitted ? "Wait for Copilot to finish the skill run — progress appears above." : "Click Run this step to send the skill request to Copilot.")}</span></div>
+        <div class="item"><strong>Next action</strong><span class="muted">\${esc(reportsReady() ? "Open the dashboard in Step 8. PowerPoint is optional in Step 9." : out.skillSubmitted ? "Wait for Copilot to finish the skill run — progress appears above." : "Click Run this step to send the skill request to Copilot.")}</span></div>
         \${prompt ? \`<pre>\${esc(prompt)}</pre>\` : ""}
       </div>\`;
     }
     function renderDisplayVisual(out) {
       return \`<div class="list">
-        \${checkCard("Dashboard report source", state.discovered.reports.length, state.context.reportDir || state.discovered.reports[0]?.label || "No generated report directory found", stepRan("display"))}
+        \${checkCard("Dashboard report source", reportsReady(), state.context.reportDir || state.discovered.reports[0]?.label || "No generated report directory found", stepRan("display"))}
         <div class="item"><strong>Dashboard action</strong><span class="muted">\${esc(out.dashboardSubmitted ? "Dashboard open request sent to Copilot." : "Click Run this step to open the dashboard canvas.")}</span></div>
         \${out.submittedAt ? \`<div class="item"><strong>Submitted</strong><span class="muted">\${esc(new Date(out.submittedAt).toLocaleString())}</span></div>\` : ""}
       </div>\`;
@@ -2075,7 +2181,9 @@ function renderHtml() {
       const p = currentPhase();
       const topButton = document.getElementById("runSelectedTop");
       topButton.textContent = "Run " + p.title;
-      topButton.disabled = !["current", "ready"].includes(p.status);
+      topButton.disabled = !canRun(p);
+      document.getElementById("runCurrent").disabled = !canRun(p);
+      document.getElementById("runAuto").disabled = state.phases.some((phase) => phase.status === "running") || doneCount() === state.phases.filter((phase) => !phase.optional).length;
       const loadResourceGroups = document.getElementById("loadResourceGroups");
       const subscription = document.getElementById("subscription");
       if (loadResourceGroups && subscription) loadResourceGroups.disabled = !subscription.value;
@@ -2085,10 +2193,11 @@ function renderHtml() {
       const p = currentPhase();
       setUiStatus("Running " + p.title + "...");
       try {
-        state = await post("/api/run-phase", { phaseId: p.id });
-        selected = state.currentPhase;
+        state = await post("/api/run-phase", { phaseId: p.id, ...(p.id === "presentation" ? { deckMode: state.context.deckMode, renderChanged: state.context.renderChanged } : {}) });
+        selected = p.id === "presentation" ? "presentation" : state.currentPhase;
         render();
-        setUiStatus(p.title + " completed.", "success");
+        const output = state.outputs[p.id.replaceAll("-", "_")] || {};
+        setUiStatus(output.waitingForSkill ? "Review skill started. Follow its progress in the console." : output.ok === false ? p.title + " needs attention." : p.title + " completed.", output.ok === false && !output.waitingForSkill ? "error" : "success");
       } catch (error) {
         setUiStatus(error.message, "error");
         await loadState();
@@ -2221,16 +2330,17 @@ function titleFor(state) {
 
 function statusFor(state) {
     if (!state) return "Loading workflow";
-    const done = state.phases.filter((phase) => phase.status === "done").length;
+    const required = state.phases.filter((phase) => !phase.optional);
+    const done = required.filter((phase) => phase.status === "done").length;
     const phase = state.phases.find((item) => item.id === state.currentPhase);
-    return `${done}/${state.phases.length} states complete · ${phase?.title ?? "Workflow"}`;
+    return `${done}/${required.length} review steps complete · ${done === required.length ? "PowerPoint optional" : phase?.title ?? "Workflow"}`;
 }
 
 const workflowCanvas = createCanvas({
     id: "waf-review-workflow",
     displayName: "WAF review workflow",
     description:
-        "Eight-state workflow sequence for validating dependencies, selecting Azure scope, collecting WordPress evidence, running the review skill, and opening the dashboard.",
+        "Eight review steps from Azure evidence to dashboard, followed by optional cached executive or detailed PowerPoint generation.",
     inputSchema: {
         type: "object",
         properties: {
@@ -2242,6 +2352,8 @@ const workflowCanvas = createCanvas({
             environment: { type: "string" },
             rto: { type: "string" },
             rpo: { type: "string" },
+            deckMode: { type: "string", enum: ["executive", "detailed"] },
+            renderChanged: { type: "boolean" },
         },
         additionalProperties: false,
     },
@@ -2280,7 +2392,7 @@ const workflowCanvas = createCanvas({
         },
         {
             name: "get_workflow_state",
-            description: "Return the current eight-state workflow model, logs, discovered artifacts, commands, subscriptions, and resource groups.",
+            description: "Return the workflow model including optional PowerPoint, logs, discovered artifacts, commands, subscriptions, and resource groups.",
             handler: async (ctx) => {
                 const instance = requireInstance(ctx.instanceId);
                 if (!instance.state) await instance.refresh();
@@ -2310,9 +2422,9 @@ const workflowCanvas = createCanvas({
         },
         {
             name: "run_phase",
-            description: "Run a single workflow phase by id.",
-            inputSchema: { type: "object", properties: { phaseId: { type: "string", enum: PHASES.map((phase) => phase.id) } }, required: ["phaseId"], additionalProperties: false },
-            handler: async (ctx) => requireInstance(ctx.instanceId).runPhase(ctx.input.phaseId),
+            description: "Run a phase by id. PowerPoint runs only when presentation is explicitly selected, with optional deckMode and renderChanged.",
+            inputSchema: { type: "object", properties: { phaseId: { type: "string", enum: PHASES.map((phase) => phase.id) }, deckMode: { type: "string", enum: ["executive", "detailed"] }, renderChanged: { type: "boolean" } }, required: ["phaseId"], additionalProperties: false },
+            handler: async (ctx) => requireInstance(ctx.instanceId).runPhase(ctx.input.phaseId, ctx.input),
         },
         {
             name: "run_next",

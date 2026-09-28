@@ -64,14 +64,6 @@ $checks += [pscustomobject]@{
     detail = $collector
 }
 
-$nodePath = Test-CommandAvailable 'node'
-$checks += [pscustomobject]@{
-    id = 'node'
-    name = 'Node.js for PowerPoint build'
-    ok = [bool]$nodePath
-    detail = if ($nodePath) { $nodePath } else { 'node command not found; reports still generate without PPTX if tooling is unavailable' }
-}
-
 [pscustomobject]@{
     ok = -not [bool](@($checks | Where-Object { -not $_.ok }))
     repoRoot = $repoRoot.Path

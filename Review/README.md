@@ -78,15 +78,26 @@ Once a collection run completes, use the `wordpress-waf-review` skill in VS Code
 /wordpress-waf-review <path-to-collector-output-directory>
 ```
 
-Give it a resource group instead of a directory and it runs the collector first. By default it writes four files to `Review/reports/<evidence-folder-name>-reports/`; `well-architected-review.pptx` is the fourth output:
+Give it a resource group instead of a directory and it runs the collector first. By default it writes three reports to `Review/reports/<evidence-folder-name>-reports/`. PowerPoint is optional:
 
 | File | Purpose |
 |---|---|
 | `executive-summary.md` | Pillar scorecard, key findings (good and bad), prioritised remediation |
 | `detailed-well-architected-review.md` | All 157 checklist controls with status, evidence pointer, and recommendation |
 | `findings.csv` | One row per finding, scored 1-5 for severity, effort, change risk, and cost |
-| `well-architected-review.pptx` | Review presentation with overview, pillar, controls, findings, remediation, and gap slides |
+| `well-architected-review.pptx` (optional) | Executive (10–15 slides) or detailed readout from the finished reports |
 
-The PowerPoint deck is generated last from the verified Markdown and CSV files. If the user declines slides or Node.js/`pptxgenjs` is unavailable, the skill reports that limitation and delivers the three written reports without a partial deck.
+The dashboard is ready after the three reports. To build a deck separately, select optional Step 9
+in the workflow or use the [reusable generator](Presentation/README.md):
+
+```powershell
+# From the repository root; install dependencies only once:
+npm ci --prefix .\Review\Presentation
+node .\Review\Presentation\generate.mjs --report-dir ".\Review\reports\<evidence-folder-name>-reports" --mode executive
+```
+
+Use `--mode detailed` to expand findings, and `--render-changed` for optional changed-slide
+inspection in Windows PowerPoint. Plain generation requires only Node.js and local dependencies.
+Cached builds reuse unchanged results; a failed build never prevents viewing the existing reports.
 
 A control is marked `Pass` or `Fail` only where collected evidence proves the outcome; anything the collector cannot decide is reported as `Not verified` and reflected in a separate coverage figure. Skill definition: [.github/skills/wordpress-waf-review/SKILL.md](../.github/skills/wordpress-waf-review/SKILL.md).
