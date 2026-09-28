@@ -16,6 +16,19 @@ const instances = new Map();
 let roots = [process.cwd()];
 
 const REPORT_FILES = ["executive-summary.md", "detailed-well-architected-review.md", "findings.csv"];
+const DECK_FILE = "well-architected-review.pptx";
+
+// Ordered artefact milestones the review skill produces. The assessment phase
+// watches for these so the console can show what the skill has finished, what
+// it is working on now, and what is still outstanding.
+const SKILL_MILESTONES = [
+    { id: "reportDir", label: "Report directory created", kind: "dir" },
+    { id: "detailed", label: "Detailed control-by-control review", kind: "file", file: "detailed-well-architected-review.md" },
+    { id: "findings", label: "Findings register (CSV)", kind: "file", file: "findings.csv" },
+    { id: "summary", label: "Executive summary", kind: "file", file: "executive-summary.md" },
+    { id: "deck", label: "PowerPoint deck", kind: "file", file: DECK_FILE },
+];
+
 const SKIP_DIRS = new Set([".git", ".idea", ".vscode", "bin", "build", "dist", "node_modules", "obj", "out", "vendor"]);
 const RUNS_FILE = "waf-review-workflow-runs.json";
 
@@ -296,6 +309,13 @@ function outputRoot(...parts) {
     return path.resolve(roots[0], ...parts);
 }
 
+// Mirrors the review skill's default output convention so the workflow knows
+// where to watch for artefacts before the skill has produced any.
+function expectedReportDirFor(evidenceDir) {
+    const name = path.basename(String(evidenceDir || "").replace(/[\\/]+$/, "")) || "evidence";
+    return outputRoot("Review", "reports", `${name}-reports`);
+}
+
 function uniqueStamp() {
     return new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
 }
@@ -438,35 +458,48 @@ function matchingRunZip(input, discovered, outputs) {
 }
 
 function statusFromOutput(phase, input, discovered, outputs, runningPhase) {
-    if (runningPhase === phase.id) return "running";
-    if (phase.id === "package" && matchingRunZip(input, discovered, outputs)) return "done";
-    if (phase.id === "assessment" && discovered.reports.length > 0) return "done";
-    if (phase.id === "assessment" && outputs.assessment?.waitingForSkill) return "ready";
-    if (outputs[phaseOutputKey(phase.id)]?.ok === false) return "failed";
-    if (outputs[phaseOutputKey(phase.id)]?.ok === true) return "done";
-    if (phase.id === "connect" && input.subscription && input.resourceGroup) return "done";
-    if (phase.id === "display" && discovered.reports.length > 0) return "ready";
-    return "pending";
+    if (runningPhase === phase.id) return { status: "running", recorded: true };
+    const record = outputs[phaseOutputKey(phase.id)];
+    if (record?.ok === false) return { status: "failed", recorded: true };
+    if (record?.ok === true) return { status: "done", recorded: true };
+    if (phase.id === "connect" && input.subscription && input.resourceGroup) return { status: "done", recorded: true };
+    if (phase.id === "assessment" && outputs.assessment?.waitingForSkill) return { status: "ready", recorded: true };
+    // Statuses below are inferred from artifacts discovered on disk rather than
+    // from this run's own history. They are only trustworthy once every earlier
+    // step has completed, so they are marked unrecorded and re-gated later.
+    if (phase.id === "package" && matchingRunZip(input, discovered, outputs)) return { status: "done", recorded: false };
+    if (phase.id === "assessment" && discovered.reports.length > 0) return { status: "done", recorded: false };
+    if (phase.id === "display" && discovered.reports.length > 0) return { status: "ready", recorded: false };
+    return { status: "pending", recorded: false };
 }
 
 function derivePhaseState(input, discovered, outputs, runningPhase) {
-    const raw = PHASES.map((phase) => ({ ...phase, status: statusFromOutput(phase, input, discovered, outputs, runningPhase) }));
+    const raw = PHASES.map((phase) => ({ ...phase, ...statusFromOutput(phase, input, discovered, outputs, runningPhase) }));
     const connected = Boolean(input.subscription && input.resourceGroup);
     if (connected && !outputs.connect) {
         const connect = raw.find((phase) => phase.id === "connect");
-        if (connect) connect.status = "done";
+        if (connect) { connect.status = "done"; connect.recorded = true; }
     }
-    const preassess = raw.find((phase) => phase.id === "preassess");
-    if (connected && preassess?.status === "pending") preassess.status = "current";
-    let blocked = false;
-    return raw.map((phase) => {
-        if (phase.status === "failed") blocked = true;
-        if (blocked && phase.status === "pending") return { ...phase, status: "blocked" };
-        if (phase.status === "pending") {
-            const firstPending = raw.find((candidate) => candidate.status === "pending");
-            if (firstPending?.id === phase.id) return { ...phase, status: "current" };
-        }
-        return phase;
+
+    // A step may only become actionable once every earlier step has finished.
+    // Without this gate a later phase can light up from discovered artifacts
+    // (an existing ZIP or report directory) while its predecessors are still
+    // outstanding, which lets the user run steps out of order.
+    let gateOpen = true;
+    let failedUpstream = false;
+    return raw.map(({ recorded, ...phase }) => {
+        const openForThisPhase = gateOpen;
+        const upstreamFailed = failedUpstream;
+        const settledHere = phase.status === "done" && (recorded || openForThisPhase);
+
+        if (phase.status === "failed") failedUpstream = true;
+        if (!settledHere) gateOpen = false;
+
+        if (phase.status === "running" || phase.status === "failed") return phase;
+        if (settledHere) return phase;
+        if (upstreamFailed) return { ...phase, status: "blocked" };
+        if (!openForThisPhase) return { ...phase, status: "pending" };
+        return { ...phase, status: phase.status === "ready" ? "ready" : "current" };
     });
 }
 
@@ -757,6 +790,7 @@ class WorkflowInstance {
         await this.loadRuns();
         if (input) this.input = { ...this.input, ...normalizeInput(input, { partial: true }) };
         await this.enrichPreparedEvidence();
+        this.resumeSkillWatch();
         await this.ensureCurrentSubscription();
         const discovered = await buildDiscovery(this.input, this.outputs);
         const commands = phaseCommands(this.input, discovered, this.outputs);
@@ -781,6 +815,7 @@ class WorkflowInstance {
             resourceGroups: this.resourceGroups,
             run: runSummary(this.currentRun),
             runs: this.runs.map(runSummary),
+            skill: this.skillProgress(),
             updatedAt: new Date().toISOString(),
         };
         await this.persistRuns();
@@ -931,8 +966,13 @@ class WorkflowInstance {
             const prompt = this.state?.commands?.reviewPrompt || phaseCommands(this.input, discovered, this.outputs).reviewPrompt;
             const evidenceDir = this.input.evidenceDir || this.outputs.prepare_assessment?.evidenceDir;
             if (!evidenceDir) throw new Error("Run Step 6 first so the collector ZIP is extracted before assessment.");
+            const expectedReportDir = expectedReportDirFor(evidenceDir);
+            this.addLog(phaseId, `Handing evidence to the review skill: ${relativePath(evidenceDir)}`, "start");
+            this.addLog(phaseId, `Expecting reports in ${relativePath(expectedReportDir)}`);
+            this.addLog(phaseId, `Watching for ${SKILL_MILESTONES.length} artefacts. Agent activity will stream here as the skill runs.`);
             const messageId = await session.send({ prompt });
-            return { waitingForSkill: true, skillSubmitted: true, submittedAt: new Date().toISOString(), messageId, prompt, evidenceDir };
+            this.startSkillWatch(expectedReportDir);
+            return { waitingForSkill: true, skillSubmitted: true, submittedAt: new Date().toISOString(), messageId, prompt, evidenceDir, expectedReportDir };
         }
         if (phaseId === "display") {
             const discovered = await buildDiscovery(this.input, this.outputs);
@@ -949,6 +989,115 @@ class WorkflowInstance {
 
     requireScope() {
         if (!this.input.subscription || !this.input.resourceGroup) throw new Error("Select a subscription and resource group first.");
+    }
+
+    // --- Review skill progress tracking -----------------------------------
+    // The skill runs inside the Copilot session rather than as a child process,
+    // so there is no stdout to pipe. Progress is reconstructed from two
+    // sources: agent tool-use hooks (what the skill is doing right now) and a
+    // poll over the expected report directory (which artefacts exist yet).
+
+    skillProgress() {
+        const out = this.outputs.assessment || {};
+        const seen = out.milestonesSeen || {};
+        const done = SKILL_MILESTONES.filter((m) => seen[m.id]).length;
+        const active = SKILL_MILESTONES.find((m) => !seen[m.id]);
+        return {
+            watching: Boolean(this.skillWatch),
+            waiting: out.waitingForSkill === true,
+            reportDir: out.expectedReportDir ? relativePath(out.expectedReportDir) : "",
+            activity: out.lastActivity || "",
+            activityAt: out.lastActivityAt || "",
+            milestones: SKILL_MILESTONES.map((m) => ({
+                id: m.id,
+                label: m.label,
+                state: seen[m.id] ? "done" : active?.id === m.id && out.waitingForSkill ? "busy" : "pending",
+                at: seen[m.id] || "",
+            })),
+            done,
+            total: SKILL_MILESTONES.length,
+        };
+    }
+
+    noteSkillActivity(message, level = "info") {
+        const out = this.outputs.assessment;
+        if (!out?.waitingForSkill) return;
+        out.lastActivity = message;
+        out.lastActivityAt = new Date().toISOString();
+        this.addLog("assessment", message, level);
+    }
+
+    // Re-arms the poller when a canvas is reopened (or the run is reselected)
+    // while the skill is still working, so progress is never lost.
+    resumeSkillWatch() {
+        const out = this.outputs.assessment;
+        if (out?.waitingForSkill && out.expectedReportDir && !this.skillWatch) {
+            this.startSkillWatch(out.expectedReportDir);
+        } else if (!out?.waitingForSkill && this.skillWatch) {
+            this.stopSkillWatch();
+        }
+    }
+
+    startSkillWatch(expectedReportDir) {
+        this.stopSkillWatch();
+        this.skillWatchDir = expectedReportDir;
+        // Bind the watcher to the run that started it so switching runs mid-poll
+        // can never write milestones onto a different run's outputs.
+        this.skillWatchRunId = this.currentRun?.runId;
+        const tick = async () => {
+            try {
+                await this.pollSkillMilestones();
+            } catch {
+                /* transient filesystem errors are not worth surfacing */
+            }
+        };
+        this.skillWatch = setInterval(tick, 2500);
+        if (typeof this.skillWatch.unref === "function") this.skillWatch.unref();
+        void tick();
+    }
+
+    stopSkillWatch() {
+        if (this.skillWatch) clearInterval(this.skillWatch);
+        this.skillWatch = null;
+        this.skillWatchRunId = null;
+    }
+
+    async pollSkillMilestones() {
+        if (this.skillWatchRunId && this.currentRun?.runId !== this.skillWatchRunId) {
+            this.stopSkillWatch();
+            return;
+        }
+        const out = this.outputs.assessment;
+        if (!out?.waitingForSkill) {
+            this.stopSkillWatch();
+            return;
+        }
+        const dir = out.expectedReportDir || this.skillWatchDir;
+        if (!dir) return;
+        out.milestonesSeen = out.milestonesSeen || {};
+        let changed = false;
+
+        for (const milestone of SKILL_MILESTONES) {
+            if (out.milestonesSeen[milestone.id]) continue;
+            const target = milestone.kind === "dir" ? dir : path.join(dir, milestone.file);
+            const exists = milestone.kind === "dir" ? await isDirectory(target) : await isFile(target);
+            if (!exists) break; // milestones are ordered; stop at the first gap
+            out.milestonesSeen[milestone.id] = new Date().toISOString();
+            changed = true;
+            this.addLog("assessment", `${milestone.label} — ready.`, "success");
+        }
+
+        const complete = SKILL_MILESTONES.every((m) => out.milestonesSeen[m.id]);
+        if (complete) {
+            out.waitingForSkill = false;
+            out.ok = true;
+            out.reportDir = dir;
+            this.input.reportDir = dir;
+            this.stopSkillWatch();
+            this.addLog("assessment", `Review skill finished. All ${SKILL_MILESTONES.length} artefacts present in ${relativePath(dir)}.`, "success");
+            changed = true;
+        }
+        if (changed) await this.refresh();
     }
 
     async runNext() {
@@ -986,6 +1135,7 @@ class WorkflowInstance {
     }
 
     async stop() {
+        this.stopSkillWatch();
         for (const client of this.clients) {
             try {
                 client.end();
@@ -1276,6 +1426,19 @@ function renderHtml() {
     .term-line.warn .term-text { color: #e3b341; }
     .term-line.error .term-text, .term-line.stderr .term-text { color: #ff7b72; }
     .term-empty { padding: 10px 12px; color: #6e7681; }
+    .skill-panel { display: grid; gap: 10px; }
+    .skill-bar { height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; }
+    .skill-bar span { display: block; height: 100%; background: var(--green); transition: width .3s ease; }
+    .skill-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+    .skill-step { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 13px; }
+    .skill-dot { text-align: center; }
+    .skill-step.done .skill-dot, .skill-step.done .skill-when { color: var(--green); }
+    .skill-step.busy .skill-dot { color: var(--accent); animation: pulse 1s steps(2) infinite; }
+    .skill-step.busy .skill-label { font-weight: 600; }
+    .skill-step.pending { color: var(--muted); }
+    .skill-when { font-size: 11px; color: var(--muted); }
+    .skill-activity { display: grid; gap: 3px; }
+    .skill-activity code { font-size: 12px; background: var(--line); padding: 5px 8px; border-radius: 6px; overflow-wrap: anywhere; }
     .term-cursor { display: inline-block; width: 7px; height: 13px; background: #58a6ff; vertical-align: -2px; animation: pulse .9s steps(2) infinite; }
     @media (max-width: 980px) { .hero, .layout, .grid, .focus-grid, .progress { grid-template-columns: 1fr; } .workflow-pane { position: static; max-height: none; overflow: visible; } .phase:not(:last-child)::after { display: none; } }
     .launcher { max-width: 1040px; margin: 0 auto; padding: 32px 24px 64px; }
@@ -1389,10 +1552,6 @@ function renderHtml() {
           <h2>Command / prompt</h2>
           <pre id="command"></pre>
           <div class="actions"><button id="copyCommand">Copy current instruction</button><button id="runCurrent" class="primary">Run current phase</button><button id="runAuto">Run automatic phases</button></div>
-        </article>
-        <article class="card">
-          <h2>Workspace state</h2>
-          <div class="list" id="workspace"></div>
         </article>
       </section>
     </section>
@@ -1542,7 +1701,10 @@ function renderHtml() {
       if (p.id === "prepare-assessment") return \`<div class="phase-inline">\${miniCheck(out.evidenceDir, "Manifest ready", ran)}</div>\`;
       if (p.id === "assessment") {
         const waiting = out.waitingForSkill && !state.discovered.reports.length;
-        if (waiting) return '<div class="phase-inline"><div class="mini-check idle"><span class="mini-mark">…</span><span>Skill request sent</span></div></div>';
+        if (waiting) {
+          const skill = state.skill || { done: 0, total: 0 };
+          return \`<div class="phase-inline"><div class="mini-check idle"><span class="mini-mark">…</span><span>Skill running — \${skill.done}/\${skill.total} artefacts\${skill.activity ? ": " + esc(skill.activity) : ""}</span></div><div class="run-bar"><span></span></div></div>\`;
+        }
         return \`<div class="phase-inline">\${miniCheck(state.discovered.reports.length, state.discovered.reports.length ? "Reports generated" : ran ? "Reports not generated" : "Not run yet", ran)}</div>\`;
       }
       if (p.id === "display") return \`<div class="phase-inline">\${miniCheck(state.discovered.reports.length, "Dashboard source", ran)}</div>\`;
@@ -1672,12 +1834,23 @@ function renderHtml() {
     function renderAssessmentVisual(out) {
       const prompt = out.prompt || state.commands.reviewPrompt;
       const step7Input = state.context.evidenceDir || state.outputs.prepare_assessment?.evidenceDir || "";
+      const skill = state.skill || { milestones: [], done: 0, total: 0 };
+      const glyph = { done: "●", busy: "◐", pending: "○" };
+      const steps = skill.milestones.map((m) => \`<li class="skill-step \${m.state}"><span class="skill-dot">\${glyph[m.state]}</span><span class="skill-label">\${esc(m.label)}</span><span class="skill-when">\${m.state === "done" ? esc(new Date(m.at).toLocaleTimeString([], { hour12: false })) : m.state === "busy" ? "in progress" : "pending"}</span></li>\`).join("");
+      const pct = skill.total ? Math.round((skill.done / skill.total) * 100) : 0;
       return \`<div class="list">
+        <div class="item skill-panel">
+          <strong>Skill progress \${skill.done}/\${skill.total}</strong>
+          <div class="skill-bar"><span style="width:\${pct}%"></span></div>
+          <ol class="skill-steps">\${steps}</ol>
+          \${skill.activity ? \`<div class="skill-activity"><span class="muted">Current activity</span><code>\${esc(skill.activity)}</code></div>\` : ""}
+          \${skill.waiting ? '<span class="muted">The skill is running in the chat. This panel and the step console update as it works.</span>' : ""}
+        </div>
         \${checkCard("Reports", state.discovered.reports.length, out.reportDir ? "Reports found at " + out.reportDir : "Not generated yet", stepRan("assessment"))}
         <div class="item"><strong>Skill input from Step 6</strong><span class="muted">\${esc(step7Input || "Run Step 6 first to extract the collector ZIP.")}</span></div>
         <div class="item"><strong>Evidence JSON check</strong><span class="muted">\${esc(state.outputs.prepare_assessment?.jsonFileCount ? state.outputs.prepare_assessment.jsonFileCount + " JSON files verified in Step 6" : "Step 6 has not verified JSON files yet.")}</span></div>
         \${out.skillSubmitted ? \`<div class="item"><strong>Submitted</strong><span class="muted">\${esc(out.submittedAt ? new Date(out.submittedAt).toLocaleString() : "Skill request sent to Copilot.")}</span></div>\` : ""}
-        <div class="item"><strong>Next action</strong><span class="muted">\${esc(state.discovered.reports.length ? "Assessment outputs are ready." : out.skillSubmitted ? "Wait for Copilot to finish the skill run, then refresh this step." : "Click Run this step to send the skill request to Copilot.")}</span></div>
+        <div class="item"><strong>Next action</strong><span class="muted">\${esc(state.discovered.reports.length ? "Assessment outputs are ready." : out.skillSubmitted ? "Wait for Copilot to finish the skill run — progress appears above." : "Click Run this step to send the skill request to Copilot.")}</span></div>
         \${prompt ? \`<pre>\${esc(prompt)}</pre>\` : ""}
       </div>\`;
     }
@@ -1687,16 +1860,6 @@ function renderHtml() {
         <div class="item"><strong>Dashboard action</strong><span class="muted">\${esc(out.dashboardSubmitted ? "Dashboard open request sent to Copilot." : "Click Run this step to open the dashboard canvas.")}</span></div>
         \${out.submittedAt ? \`<div class="item"><strong>Submitted</strong><span class="muted">\${esc(new Date(out.submittedAt).toLocaleString())}</span></div>\` : ""}
       </div>\`;
-    }
-    function renderWorkspace() {
-      const rows = [
-        ["Collector", state.discovered.collector.present ? state.discovered.collector.path : "Missing"],
-        ["Pre-assessment", state.outputs.preassess?.outputFile || "Not run"],
-        ["Evidence", state.context.evidenceDir || state.discovered.evidence.map((x) => x.label).join("\\n") || "None found"],
-        ["Package", state.outputs.collect?.zipFile || state.discovered.zips.map((x) => x.label).join("\\n") || "None found"],
-        ["Reports", state.context.reportDir || state.discovered.reports.map((x) => x.label).join("\\n") || "None for this run"],
-      ];
-      document.getElementById("workspace").innerHTML = rows.map(([k, v]) => \`<div class="item"><strong>\${esc(k)}</strong><span class="muted" style="white-space:pre-wrap">\${esc(v)}</span></div>\`).join("");
     }
     function renderLogs() {
       const lines = (state.logs || []).slice().reverse();
@@ -1908,7 +2071,7 @@ function renderHtml() {
       applyView();
       renderLauncherRuns();
       document.getElementById("updated").textContent = \`Run \${state.run?.name ? state.run.name + " · " : ""}\${state.run?.runId || "unknown"} · Last checked \${new Date(state.updatedAt).toLocaleString()}\`;
-      renderRuns(); renderProgress(); renderSequence(); renderDetail(); renderSelects(); renderWorkspace(); renderLogs(); bindScopeControls();
+      renderRuns(); renderProgress(); renderSequence(); renderDetail(); renderSelects(); renderLogs(); bindScopeControls();
       const p = currentPhase();
       const topButton = document.getElementById("runSelectedTop");
       topButton.textContent = "Run " + p.title;
@@ -2189,7 +2352,64 @@ const workflowCanvas = createCanvas({
     },
 });
 
-const session = await joinSession({ canvases: [workflowCanvas] });
+// Turns a raw agent tool call into a short, human-readable console line. Only
+// the identifying argument is shown; full arguments are noisy and can contain
+// evidence values that should not be echoed into the workflow log.
+function describeToolUse(toolName, toolArgs) {
+    const args = toolArgs && typeof toolArgs === "object" ? toolArgs : {};
+    const shorten = (value, max = 110) => {
+        const text = String(value ?? "").replace(/\s+/g, " ").trim();
+        return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+    };
+    const rel = (value) => shorten(relativePath(String(value)));
+    switch (toolName) {
+        case "view":
+            return `Read ${rel(args.path)}`;
+        case "create":
+            return `Create ${rel(args.path)}`;
+        case "edit":
+            return `Edit ${rel(args.path)}`;
+        case "glob":
+            return `Find files ${shorten(args.pattern, 60)}`;
+        case "grep":
+            return `Search ${shorten(args.pattern, 60)}`;
+        case "powershell":
+            return shorten(args.description || args.command, 120);
+        case "task":
+            return `Subagent: ${shorten(args.description || args.name, 80)}`;
+        case "sql":
+            return `Query: ${shorten(args.description, 80)}`;
+        default:
+            return shorten(`${toolName}${args.description ? ` — ${args.description}` : ""}`, 120);
+    }
+}
+
+// Broadcasts skill activity to every open workflow canvas that is currently
+// waiting on the review skill.
+function forwardSkillActivity(message, level = "info") {
+    for (const instance of instances.values()) {
+        try {
+            instance.noteSkillActivity(message, level);
+        } catch {
+            /* a canvas mid-teardown must not break the hook */
+        }
+    }
+}
+
+const session = await joinSession({
+    canvases: [workflowCanvas],
+    hooks: {
+        onPreToolUse: (input) => {
+            forwardSkillActivity(`▶ ${describeToolUse(input.toolName, input.toolArgs)}`);
+        },
+        onPostToolUse: (input) => {
+            forwardSkillActivity(`✓ ${describeToolUse(input.toolName, input.toolArgs)}`, "success");
+        },
+        onPostToolUseFailure: (input) => {
+            forwardSkillActivity(`✗ ${describeToolUse(input.toolName, input.toolArgs)} — ${String(input.error || "failed").slice(0, 200)}`, "error");
+        },
+    },
+});
 
 if (session.workspacePath && !roots.includes(path.resolve(session.workspacePath))) {
     roots = [...roots, path.resolve(session.workspacePath)];
