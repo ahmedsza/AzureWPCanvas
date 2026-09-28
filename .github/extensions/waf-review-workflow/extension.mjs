@@ -432,11 +432,11 @@ function matchingRunZip(input, discovered, outputs) {
 function statusFromOutput(phase, input, discovered, outputs, runningPhase) {
     if (runningPhase === phase.id) return "running";
     if (phase.id === "package" && matchingRunZip(input, discovered, outputs)) return "done";
+    if (phase.id === "assessment" && discovered.reports.length > 0) return "done";
     if (phase.id === "assessment" && outputs.assessment?.waitingForSkill) return "ready";
     if (outputs[phaseOutputKey(phase.id)]?.ok === false) return "failed";
     if (outputs[phaseOutputKey(phase.id)]?.ok === true) return "done";
     if (phase.id === "connect" && input.subscription && input.resourceGroup) return "done";
-    if (phase.id === "assessment" && discovered.reports.length > 0) return "done";
     if (phase.id === "display" && discovered.reports.length > 0) return "ready";
     return "pending";
 }
@@ -825,7 +825,10 @@ class WorkflowInstance {
             const reports = await discoverReports();
             if (reports.length === 0) throw new Error("No report directory was found. Run the assessment skill first.");
             this.input.reportDir = reports[0].dir;
-            return { reportDir: reports[0].dir, dashboardCommand: phaseCommands(this.input, await buildDiscovery(this.input, this.outputs), this.outputs).dashboard };
+            const dashboardCommand = phaseCommands(this.input, await buildDiscovery(this.input, this.outputs), this.outputs).dashboard;
+            const prompt = `Open the WAF review dashboard canvas for the generated report directory.\n\nUse this exact tool call:\n${dashboardCommand}`;
+            const messageId = await session.send({ prompt });
+            return { reportDir: reports[0].dir, dashboardCommand, dashboardSubmitted: true, submittedAt: new Date().toISOString(), messageId };
         }
         return {};
     }
@@ -1399,7 +1402,11 @@ function renderHtml() {
       </div>\`;
     }
     function renderDisplayVisual(out) {
-      return \`<div class="check \${state.discovered.reports.length ? "ok" : "fail"}"><div class="mark">\${state.discovered.reports.length ? "✓" : "×"}</div><div><strong>Dashboard report source</strong><p class="muted">\${esc(state.context.reportDir || state.discovered.reports[0]?.label || "No generated report directory found")}</p></div></div>\`;
+      return \`<div class="list">
+        <div class="check \${state.discovered.reports.length ? "ok" : "fail"}"><div class="mark">\${state.discovered.reports.length ? "✓" : "×"}</div><div><strong>Dashboard report source</strong><p class="muted">\${esc(state.context.reportDir || state.discovered.reports[0]?.label || "No generated report directory found")}</p></div></div>
+        <div class="item"><strong>Dashboard action</strong><span class="muted">\${esc(out.dashboardSubmitted ? "Dashboard open request sent to Copilot." : "Click Run this step to open the dashboard canvas.")}</span></div>
+        \${out.submittedAt ? \`<div class="item"><strong>Submitted</strong><span class="muted">\${esc(new Date(out.submittedAt).toLocaleString())}</span></div>\` : ""}
+      </div>\`;
     }
     function renderWorkspace() {
       const rows = [
