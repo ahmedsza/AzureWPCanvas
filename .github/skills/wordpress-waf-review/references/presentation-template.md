@@ -24,6 +24,10 @@ node .\Review\Presentation\generate.mjs --report-dir "<report-directory>" --mode
   representative visual QA; routine data-only runs use the built-in automated validation.
 - **Failure:** keep the previous published deck and the three reports intact; never publish a
   partial deck. PowerPoint failure must not block the dashboard.
+- **Scorecard validation:** requires eight ordered sections and a final `Total` row (a
+  parenthetical qualifier such as `Total (pooled audit; not headline)` is accepted).
+  Counts and scores must reconcile; headline means use unrounded control ratios and preserve
+  `n/a` when a pillar has no decided controls.
 
 The implementation and its local README define exact pagination. The detailed specifications
 below are design guidance, not a requirement to expand every executive deck to dozens of slides.

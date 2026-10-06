@@ -1,0 +1,372 @@
+- generic [active] [ref=f1e1]:
+  - banner [ref=f1e2]:
+    - generic [ref=f1e3]:
+      - generic [ref=f1e4]:
+        - heading "WordPress WAF review workflow" [level=1] [ref=f1e5]
+        - paragraph [ref=f1e6]: "Eight review steps: validate, connect, inventory, collect, package, unzip, assess, dashboard. Optional Step 9: PowerPoint."
+      - generic [ref=f1e7]:
+        - generic [ref=f1e8]:
+          - button "Start screen" [ref=f1e9] [cursor=pointer]
+          - generic [ref=f1e10]:
+            - generic [ref=f1e11]: Run
+            - combobox "Run" [ref=f1e12]:
+              - option "run-20261006060547628-jubdzaaz — ahms-wg-dev-rg — 10/6/2026, 8:05:47 AM" [selected]
+              - option "run-20260928075500 — 5e8eb071-5103-4178-b2bc-417cf42def4d — 9/28/2026, 9:55:00 AM"
+          - button "Reset / new run" [ref=f1e13] [cursor=pointer]
+        - generic [ref=f1e14]:
+          - button "Manual approvals" [ref=f1e15] [cursor=pointer]
+          - button "Automatic after scope" [ref=f1e16] [cursor=pointer]
+          - button "Run PowerPoint (optional)" [ref=f1e17] [cursor=pointer]
+          - button "Activity log" [ref=f1e18] [cursor=pointer]
+          - button "Add manual questions" [ref=f1e19] [cursor=pointer]
+          - button "Refresh" [ref=f1e20] [cursor=pointer]
+    - paragraph
+    - paragraph [ref=f1e21]: Run run-20261006060547628-jubdzaaz · Last checked 10/6/2026, 9:27:51 AM
+  - main [ref=f1e22]:
+    - generic [ref=f1e23]:
+      - complementary [ref=f1e24]:
+        - generic [ref=f1e25]:
+          - strong [ref=f1e27]: 100%
+          - generic [ref=f1e28]:
+            - heading "8/8 review steps complete" [level=2] [ref=f1e29]
+            - paragraph [ref=f1e30]: Review complete. PowerPoint is optional.
+        - generic [ref=f1e33]:
+          - button "✓ Step 01 · Done Validate dependencies Local tools ✓ PowerShell 7+ ✓ Azure CLI ✓ Azure CLI login ✓ Collector script Run again" [ref=f1e34] [cursor=pointer]:
+            - generic [ref=f1e35]: ✓
+            - generic [ref=f1e37]:
+              - generic [ref=f1e38]: Step 01 · Done
+              - heading "Validate dependencies" [level=3] [ref=f1e39]
+              - strong [ref=f1e40]: Local tools
+            - generic [ref=f1e41]:
+              - generic [ref=f1e42]:
+                - generic [ref=f1e43]: ✓
+                - generic [ref=f1e44]: PowerShell 7+
+              - generic [ref=f1e45]:
+                - generic [ref=f1e46]: ✓
+                - generic [ref=f1e47]: Azure CLI
+              - generic [ref=f1e48]:
+                - generic [ref=f1e49]: ✓
+                - generic [ref=f1e50]: Azure CLI login
+              - generic [ref=f1e51]:
+                - generic [ref=f1e52]: ✓
+                - generic [ref=f1e53]: Collector script
+            - button "Run again" [ref=f1e54]
+          - button "☁️ Step 02 · Done Connect scope Subscription + RG ✓ MCAPS-Hybrid-REQ-41424-2022-ahmeds ✓ ahms-wg-dev-rg (southafricanorth) Run again" [ref=f1e55] [cursor=pointer]:
+            - generic [ref=f1e56]: ☁️
+            - generic [ref=f1e58]:
+              - generic [ref=f1e59]: Step 02 · Done
+              - heading "Connect scope" [level=3] [ref=f1e60]
+              - strong [ref=f1e61]: Subscription + RG
+            - generic [ref=f1e62]:
+              - generic [ref=f1e63]:
+                - generic [ref=f1e64]: ✓
+                - generic [ref=f1e65]: MCAPS-Hybrid-REQ-41424-2022-ahmeds
+              - generic [ref=f1e66]:
+                - generic [ref=f1e67]: ✓
+                - generic [ref=f1e68]: ahms-wg-dev-rg (southafricanorth)
+            - button "Run again" [ref=f1e69]
+          - button [ref=f1e70] [cursor=pointer]:
+            - generic [ref=f1e71]: 🔎
+            - generic [ref=f1e73]:
+              - generic [ref=f1e74]: Step 03 · Done
+              - heading "Pre-assess" [level=3] [ref=f1e75]
+              - strong [ref=f1e76]: Inventory
+            - generic [ref=f1e77]:
+              - generic [ref=f1e78]:
+                - generic [ref=f1e79]: ✓
+                - generic [ref=f1e80]: 37 resources found
+              - generic [ref=f1e81]:
+                - generic [ref=f1e82]: Microsoft.Network/privateEndpoints · 4
+                - generic [ref=f1e83]: privateDnsZones/virtualNetworkLinks · 4
+                - generic [ref=f1e84]: Microsoft.Network/privateDnsZones · 4
+                - generic [ref=f1e85]: Microsoft.Network/networkInterfaces · 4
+                - generic [ref=f1e86]: Microsoft.Network/networkSecurityGroups · 3
+                - generic [ref=f1e87]: microsoft.alertsmanagement/smartDetectorAlertRules · 1
+                - generic [ref=f1e88]: Microsoft.Storage/storageAccounts · 1
+                - generic [ref=f1e89]: Microsoft.OperationalInsights/workspaces · 1
+                - generic [ref=f1e90]: Microsoft.Network/virtualNetworks · 1
+                - generic [ref=f1e91]: Microsoft.Network/frontdoorWebApplicationFirewallPolicies · 1
+              - generic [ref=f1e92]:
+                - generic [ref=f1e93]:
+                  - generic "microsoft.alertsmanagement/smartDetectorAlertRules" [ref=f1e94]: Failure Anomalies - wordpressexampledevappiswpsfsjvczhhe
+                  - generic [ref=f1e95]: microsoft.alertsmanagement/smartDetectorAlertRules
+                - generic [ref=f1e96]:
+                  - generic "Microsoft.Cache/redisEnterprise" [ref=f1e97]: wordpressexampledevredisswpsfsjvczhhe
+                  - generic [ref=f1e98]: Microsoft.Cache/redisEnterprise
+                - generic [ref=f1e99]:
+                  - generic "Microsoft.Cdn/profiles" [ref=f1e100]: wordpress-example-dev-afd
+                  - generic [ref=f1e101]: Microsoft.Cdn/profiles
+                - generic [ref=f1e102]:
+                  - generic "Microsoft.Cdn/profiles/afdendpoints" [ref=f1e103]: wordpress-example-dev-afd/wordpressexampledevafdswpsfsjvczhhe
+                  - generic [ref=f1e104]: profiles/afdendpoints
+                - generic [ref=f1e105]:
+                  - generic "Microsoft.Communication/CommunicationServices" [ref=f1e106]: wordpress-example-dev-acs-swpsfsjvczhhe
+                  - generic [ref=f1e107]: Microsoft.Communication/CommunicationServices
+                - generic [ref=f1e108]:
+                  - generic "Microsoft.Communication/EmailServices" [ref=f1e109]: wordpress-example-dev-email-acs-swpsfsjvczhhe
+                  - generic [ref=f1e110]: Microsoft.Communication/EmailServices
+                - generic [ref=f1e111]:
+                  - generic "Microsoft.Communication/EmailServices/Domains" [ref=f1e112]: wordpress-example-dev-email-acs-swpsfsjvczhhe/AzureManagedDomain
+                  - generic [ref=f1e113]: EmailServices/Domains
+                - generic [ref=f1e114]:
+                  - generic "Microsoft.DBforMySQL/flexibleServers" [ref=f1e115]: wordpress-example-dev-mysql-swpsfsjvczhhe
+                  - generic [ref=f1e116]: Microsoft.DBforMySQL/flexibleServers
+                - generic [ref=f1e117]:
+                  - generic "Microsoft.EventGrid/systemTopics" [ref=f1e118]: wordpressexswpsfsjvczhhe-f5ea0c51-8c23-4282-a54f-2ba70b6a792c
+                  - generic [ref=f1e119]: Microsoft.EventGrid/systemTopics
+                - generic [ref=f1e120]:
+                  - generic "Microsoft.Insights/components" [ref=f1e121]: wordpressexampledevappiswpsfsjvczhhe
+                  - generic [ref=f1e122]: Microsoft.Insights/components
+                - generic [ref=f1e123]:
+                  - generic "Microsoft.KeyVault/vaults" [ref=f1e124]: kv-wordp-dev-bzrupj5rt6
+                  - generic [ref=f1e125]: Microsoft.KeyVault/vaults
+                - generic [ref=f1e126]:
+                  - generic "Microsoft.ManagedIdentity/userAssignedIdentities" [ref=f1e127]: wordpress-example-dev-identity
+                  - generic [ref=f1e128]: Microsoft.ManagedIdentity/userAssignedIdentities
+                - generic [ref=f1e129]:
+                  - generic "Microsoft.Network/frontdoorWebApplicationFirewallPolicies": wordpressexampledevwaf
+                  - generic [ref=f1e130]: Microsoft.Network/frontdoorWebApplicationFirewallPolicies
+                - generic [ref=f1e131]:
+                  - generic "Microsoft.Network/networkInterfaces" [ref=f1e132]: kv-wordp-dev-bzrupj5rt6-pe.nic.eb2ea48f-67f5-4f6e-9e8c-3e9c29285393
+                  - generic [ref=f1e133]: Microsoft.Network/networkInterfaces
+                - generic [ref=f1e134]:
+                  - generic "Microsoft.Network/networkInterfaces" [ref=f1e135]: wordpress-example-dev-mysql-swpsfsjvczhhe-p.nic.da52adff-8be3-4e4b-b958-ecb5ed695018
+                  - generic [ref=f1e136]: Microsoft.Network/networkInterfaces
+                - generic [ref=f1e137]:
+                  - generic "Microsoft.Network/networkInterfaces" [ref=f1e138]: wordpressexampledevredisswpsfsjvczhhe-pe.nic.e3ec3249-6244-441f-b039-45ece9a7a479
+                  - generic [ref=f1e139]: Microsoft.Network/networkInterfaces
+                - generic [ref=f1e140]:
+                  - generic "Microsoft.Network/networkInterfaces" [ref=f1e141]: wordpressexswpsfsjvczhhe-blob-pe.nic.14249857-8924-48bf-878d-1b69470c4f11
+                  - generic [ref=f1e142]: Microsoft.Network/networkInterfaces
+                - generic [ref=f1e143]:
+                  - generic "Microsoft.Network/networkSecurityGroups" [ref=f1e144]: wordpress-example-dev-vnet-wordpress-example-dev-appsubnet-nsg-southafricanorth
+                  - generic [ref=f1e145]: Microsoft.Network/networkSecurityGroups
+                - generic [ref=f1e146]:
+                  - generic "Microsoft.Network/networkSecurityGroups" [ref=f1e147]: wordpress-example-dev-vnet-wordpress-example-dev-dbsubnet-nsg-southafricanorth
+                  - generic [ref=f1e148]: Microsoft.Network/networkSecurityGroups
+                - generic [ref=f1e149]:
+                  - generic "Microsoft.Network/networkSecurityGroups" [ref=f1e150]: wordpress-example-dev-vnet-wordpress-example-dev-pesubnet-nsg-southafricanorth
+                  - generic [ref=f1e151]: Microsoft.Network/networkSecurityGroups
+                - generic [ref=f1e152]:
+                  - generic "Microsoft.Network/privateDnsZones" [ref=f1e153]: privatelink.blob.core.windows.net
+                  - generic [ref=f1e154]: Microsoft.Network/privateDnsZones
+                - generic [ref=f1e155]:
+                  - generic "Microsoft.Network/privateDnsZones" [ref=f1e156]: privatelink.mysql.database.azure.com
+                  - generic [ref=f1e157]: Microsoft.Network/privateDnsZones
+                - generic [ref=f1e158]:
+                  - generic "Microsoft.Network/privateDnsZones" [ref=f1e159]: privatelink.redis.azure.net
+                  - generic [ref=f1e160]: Microsoft.Network/privateDnsZones
+                - generic [ref=f1e161]:
+                  - generic "Microsoft.Network/privateDnsZones" [ref=f1e162]: privatelink.vaultcore.azure.net
+                  - generic [ref=f1e163]: Microsoft.Network/privateDnsZones
+                - generic [ref=f1e164]:
+                  - generic "Microsoft.Network/privateDnsZones/virtualNetworkLinks" [ref=f1e165]: privatelink.blob.core.windows.net/wordpress-example-dev-vnet-link
+                  - generic [ref=f1e166]: privateDnsZones/virtualNetworkLinks
+                - generic [ref=f1e167]:
+                  - generic "Microsoft.Network/privateDnsZones/virtualNetworkLinks" [ref=f1e168]: privatelink.mysql.database.azure.com/wordpress-example-dev-vnet-link
+                  - generic [ref=f1e169]: privateDnsZones/virtualNetworkLinks
+                - generic [ref=f1e170]:
+                  - generic "Microsoft.Network/privateDnsZones/virtualNetworkLinks" [ref=f1e171]: privatelink.redis.azure.net/wordpress-example-dev-vnet-link
+                  - generic [ref=f1e172]: privateDnsZones/virtualNetworkLinks
+                - generic [ref=f1e173]:
+                  - generic "Microsoft.Network/privateDnsZones/virtualNetworkLinks" [ref=f1e174]: privatelink.vaultcore.azure.net/wordpress-example-dev-vnet-link
+                  - generic [ref=f1e175]: privateDnsZones/virtualNetworkLinks
+                - generic [ref=f1e176]:
+                  - generic "Microsoft.Network/privateEndpoints" [ref=f1e177]: kv-wordp-dev-bzrupj5rt6-pe
+                  - generic [ref=f1e178]: Microsoft.Network/privateEndpoints
+                - generic [ref=f1e179]:
+                  - generic "Microsoft.Network/privateEndpoints" [ref=f1e180]: wordpress-example-dev-mysql-swpsfsjvczhhe-pe
+                  - generic [ref=f1e181]: Microsoft.Network/privateEndpoints
+                - generic [ref=f1e182]:
+                  - generic "Microsoft.Network/privateEndpoints" [ref=f1e183]: wordpressexampledevredisswpsfsjvczhhe-pe
+                  - generic [ref=f1e184]: Microsoft.Network/privateEndpoints
+                - generic [ref=f1e185]:
+                  - generic "Microsoft.Network/privateEndpoints" [ref=f1e186]: wordpressexswpsfsjvczhhe-blob-pe
+                  - generic [ref=f1e187]: Microsoft.Network/privateEndpoints
+                - generic [ref=f1e188]:
+                  - generic "Microsoft.Network/virtualNetworks" [ref=f1e189]: wordpress-example-dev-vnet
+                  - generic [ref=f1e190]: Microsoft.Network/virtualNetworks
+                - generic [ref=f1e191]:
+                  - generic "Microsoft.OperationalInsights/workspaces" [ref=f1e192]: wordpressexampledevlawswpsfsjvczhhe
+                  - generic [ref=f1e193]: Microsoft.OperationalInsights/workspaces
+                - generic [ref=f1e194]:
+                  - generic "Microsoft.Storage/storageAccounts" [ref=f1e195]: wordpressexswpsfsjvczhhe
+                  - generic [ref=f1e196]: Microsoft.Storage/storageAccounts
+                - generic [ref=f1e197]:
+                  - generic "Microsoft.Web/serverFarms" [ref=f1e198]: asp-wordpress-example-dev-swpsfsjvczhhe
+                  - generic [ref=f1e199]: Microsoft.Web/serverFarms
+                - generic [ref=f1e200]:
+                  - generic "Microsoft.Web/sites" [ref=f1e201]: wordpressexampledev-wp-dev-swpsfsjvczhhe
+                  - generic [ref=f1e202]: Microsoft.Web/sites
+            - button "Run again" [ref=f1e203]
+          - 'button "📥 Step 04 · Done Collect data Evidence ✓ Evidence folder ✓ Collector ZIP: Evidence\\wordpress-posture-ahms-wg-dev-rg-20261006061516-20261006T062523390Z-7334c0cc.zip Run again" [ref=f1e204] [cursor=pointer]':
+            - generic [ref=f1e205]: 📥
+            - generic [ref=f1e207]:
+              - generic [ref=f1e208]: Step 04 · Done
+              - heading "Collect data" [level=3] [ref=f1e209]
+              - strong [ref=f1e210]: Evidence
+            - generic [ref=f1e211]:
+              - generic [ref=f1e212]:
+                - generic [ref=f1e213]: ✓
+                - generic [ref=f1e214]: Evidence folder
+              - generic [ref=f1e215]:
+                - generic [ref=f1e216]: ✓
+                - generic [ref=f1e217]: "Collector ZIP: Evidence\\wordpress-posture-ahms-wg-dev-rg-20261006061516-20261006T062523390Z-7334c0cc.zip"
+            - button "Run again" [ref=f1e218]
+          - 'button "📦 Step 05 · Done Package data ZIP ✓ Package: Evidence\\wordpress-posture-ahms-wg-dev-rg-20261006061516-20261006T062523390Z-7334c0cc.zip Run again" [ref=f1e219] [cursor=pointer]':
+            - generic [ref=f1e220]: 📦
+            - generic [ref=f1e222]:
+              - generic [ref=f1e223]: Step 05 · Done
+              - heading "Package data" [level=3] [ref=f1e224]
+              - strong [ref=f1e225]: ZIP
+            - generic [ref=f1e227]:
+              - generic [ref=f1e228]: ✓
+              - generic [ref=f1e229]: "Package: Evidence\\wordpress-posture-ahms-wg-dev-rg-20261006061516-20261006T062523390Z-7334c0cc.zip"
+            - button "Run again" [ref=f1e230]
+          - button "🗂️ Step 06 · Done Pre-Assess Phase Unzip ✓ Manifest ready Run again" [ref=f1e231] [cursor=pointer]:
+            - generic [ref=f1e232]: 🗂️
+            - generic [ref=f1e234]:
+              - generic [ref=f1e235]: Step 06 · Done
+              - heading "Pre-Assess Phase" [level=3] [ref=f1e236]
+              - strong [ref=f1e237]: Unzip
+            - generic [ref=f1e239]:
+              - generic [ref=f1e240]: ✓
+              - generic [ref=f1e241]: Manifest ready
+            - button "Run again" [ref=f1e242]
+          - button "🧠 Step 07 · Done Assessment Phase Skill ✓ Three reports ready Run again" [ref=f1e243] [cursor=pointer]:
+            - generic [ref=f1e244]: 🧠
+            - generic [ref=f1e246]:
+              - generic [ref=f1e247]: Step 07 · Done
+              - heading "Assessment Phase" [level=3] [ref=f1e248]
+              - strong [ref=f1e249]: Skill
+            - generic [ref=f1e251]:
+              - generic [ref=f1e252]: ✓
+              - generic [ref=f1e253]: Three reports ready
+            - button "Run again" [ref=f1e254]
+          - button "📊 Step 08 · Done Display Canvas ✓ Dashboard source Run again" [ref=f1e255] [cursor=pointer]:
+            - generic [ref=f1e256]: 📊
+            - generic [ref=f1e258]:
+              - generic [ref=f1e259]: Step 08 · Done
+              - heading "Display" [level=3] [ref=f1e260]
+              - strong [ref=f1e261]: Canvas
+            - generic [ref=f1e263]:
+              - generic [ref=f1e264]: ✓
+              - generic [ref=f1e265]: Dashboard source
+            - button "Run again" [ref=f1e266]
+          - button "▤ Step 09 · Optional · Done PowerPoint (optional) Executive / detailed executive · 15 slides · cached Run again" [pressed] [ref=f1e267] [cursor=pointer]:
+            - generic [ref=f1e268]: ▤
+            - generic [ref=f1e270]:
+              - generic [ref=f1e271]: Step 09 · Optional · Done
+              - heading "PowerPoint (optional)" [level=3] [ref=f1e272]
+              - strong [ref=f1e273]: Executive / detailed
+            - generic [ref=f1e274]: executive · 15 slides · cached
+            - button "Run again" [ref=f1e276]
+      - generic [ref=f1e277]:
+        - article [ref=f1e278]:
+          - generic [ref=f1e279]:
+            - generic [ref=f1e280]: ▤
+            - generic [ref=f1e282]:
+              - text: Step 09 · Done
+              - heading "PowerPoint (optional)" [level=2] [ref=f1e283]
+              - paragraph [ref=f1e284]: Builds a reusable-template presentation from the finished reports, without rerunning the assessment. Defaults to a short executive deck; detailed findings are optional.
+          - generic [ref=f1e285]:
+            - generic [ref=f1e286]:
+              - text: Presentation length
+              - combobox "Presentation length" [ref=f1e287]:
+                - option "Executive — 10–15 slides (default)" [selected]
+                - option "Detailed — includes findings and remediation"
+            - generic [ref=f1e288]:
+              - checkbox "Render changed slides for visual inspection (optional)" [ref=f1e289]
+              - text: Render changed slides for visual inspection (optional)
+            - paragraph [ref=f1e290]: Uses the existing reports and a tested template. Unchanged builds reuse cached results. Rendering needs PowerPoint on Windows; plain generation does not.
+            - paragraph [ref=f1e291]:
+              - text: "One-time setup:"
+              - code [ref=f1e292]: npm ci --prefix Review\Presentation
+              - text: . A successful build replaces the deck in this report folder.
+          - generic [ref=f1e293]:
+            - button "Generate PowerPoint" [ref=f1e294] [cursor=pointer]
+            - button "Copy instruction" [ref=f1e295] [cursor=pointer]
+        - article [ref=f1e296]:
+          - generic [ref=f1e297]:
+            - heading "Step console" [level=2] [ref=f1e298]
+            - generic [ref=f1e299]:
+              - generic [ref=f1e300]: Step 09 · PowerPoint (optional)
+              - generic [ref=f1e301]: Succeeded
+              - generic [ref=f1e302]:
+                - checkbox "Follow" [checked] [ref=f1e303]
+                - text: Follow
+              - button "Copy" [ref=f1e304] [cursor=pointer]
+          - log [ref=f1e305]:
+            - generic [ref=f1e306]:
+              - generic [ref=f1e307]: 09:03:21
+              - generic [ref=f1e308]: Starting PowerPoint (optional).
+            - generic [ref=f1e309]:
+              - generic [ref=f1e310]: 09:03:21
+              - generic [ref=f1e311]: Building executive PowerPoint from existing reports; the assessment will not run again.
+            - generic [ref=f1e312]:
+              - generic [ref=f1e313]: 09:03:21
+              - generic [ref=f1e314]: Validating the three existing report inputs…
+            - generic [ref=f1e315]:
+              - generic [ref=f1e316]: 09:03:21
+              - generic [ref=f1e317]: "Presentation generation failed: Report validation: expected eight sections and a total row"
+            - generic [ref=f1e318]:
+              - generic [ref=f1e319]: 09:03:21
+              - generic [ref=f1e320]: "Failed: Presentation generation failed: Report validation: expected eight sections and a total row"
+            - generic [ref=f1e321]:
+              - generic [ref=f1e322]: 09:03:30
+              - generic [ref=f1e323]: Starting PowerPoint (optional).
+            - generic [ref=f1e324]:
+              - generic [ref=f1e325]: 09:03:30
+              - generic [ref=f1e326]: Building executive PowerPoint from existing reports; the assessment will not run again.
+            - generic [ref=f1e327]:
+              - generic [ref=f1e328]: 09:03:30
+              - generic [ref=f1e329]: Validating the three existing report inputs…
+            - generic [ref=f1e330]:
+              - generic [ref=f1e331]: 09:03:30
+              - generic [ref=f1e332]: "Presentation generation failed: Report validation: expected eight sections and a total row"
+            - generic [ref=f1e333]:
+              - generic [ref=f1e334]: 09:03:30
+              - generic [ref=f1e335]: "Failed: Presentation generation failed: Report validation: expected eight sections and a total row"
+            - generic [ref=f1e336]:
+              - generic [ref=f1e337]: 09:27:49
+              - generic [ref=f1e338]: Starting PowerPoint (optional).
+            - generic [ref=f1e339]:
+              - generic [ref=f1e340]: 09:27:49
+              - generic [ref=f1e341]: Building executive PowerPoint from existing reports; the assessment will not run again.
+            - generic [ref=f1e342]:
+              - generic [ref=f1e343]: 09:27:49
+              - generic [ref=f1e344]: Validating the three existing report inputs…
+            - generic [ref=f1e345]:
+              - generic [ref=f1e346]: 09:27:51
+              - generic [ref=f1e347]: Reusing validated executive deck (15 slides).
+            - generic [ref=f1e348]:
+              - generic [ref=f1e349]: 09:27:51
+              - generic [ref=f1e350]: "{\"ok\":true,\"outputFile\":\"D:\\\\azurewordpress\\\\AzureWPCanvas\\\\Review\\\\reports\\\\wordpress-posture-ahms-wg-dev-rg-20261006061516-reports\\\\well-architected-review.pptx\",\"mode\":\"executive\",\"slideCount\":15,\"cached\":true,\"durationMs\":1601,\"renderedSlides\":0,\"reusedSlideImages\":0}"
+            - generic [ref=f1e351]:
+              - generic [ref=f1e352]: 09:27:51
+              - generic [ref=f1e353]: Completed PowerPoint (optional).
+        - article [ref=f1e354]:
+          - heading "Step details" [level=2] [ref=f1e355]
+          - generic [ref=f1e356]:
+            - strong [ref=f1e357]: Execution mode
+            - generic [ref=f1e358]: Manual approval between phases
+          - generic [ref=f1e359]:
+            - strong [ref=f1e360]: Selected scope
+            - generic [ref=f1e361]: 5e8eb071-5103-4178-b2bc-417cf42def4d / ahms-wg-dev-rg
+          - generic [ref=f1e362]:
+            - generic [ref=f1e363]:
+              - strong [ref=f1e364]: Optional output
+              - generic [ref=f1e365]: well-architected-review.pptx — not required for the dashboard
+            - generic [ref=f1e366]:
+              - strong [ref=f1e367]: Last build
+              - generic [ref=f1e368]: executive · 15 slides · cache reused · 1.6s
+            - generic [ref=f1e369]:
+              - strong [ref=f1e370]: File
+              - generic [ref=f1e371]: D:\azurewordpress\AzureWPCanvas\Review\reports\wordpress-posture-ahms-wg-dev-rg-20261006061516-reports\well-architected-review.pptx
+        - article [ref=f1e372]:
+          - heading "Command / prompt" [level=2] [ref=f1e373]
+          - generic [ref=f1e374]: node .\Review\Presentation\generate.mjs --report-dir "Review\\reports\\wordpress-posture-ahms-wg-dev-rg-20261006061516-reports" --mode executive
+          - generic [ref=f1e375]:
+            - button "Copy current instruction" [ref=f1e376] [cursor=pointer]
+            - button "Run current phase" [ref=f1e377] [cursor=pointer]
+            - button "Run automatic phases" [disabled] [ref=f1e378]

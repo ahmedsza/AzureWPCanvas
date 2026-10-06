@@ -107,11 +107,16 @@ Engineering audience. Every applicable checklist ID appears exactly once.
 | Reviewer / review date | |
 | Stated SLO / RTO / RPO | <or "not supplied"> |
 | Data classification | <or "not supplied"> |
+| Manual validation | <not included / skipped / included: snapshot path, run ID, revision, creation time> |
 
 Assessment is based on point-in-time Azure control-plane configuration captured by
 `Invoke-CollectWordPressPosture.ps1`. It does not include live availability testing,
 application vulnerability scanning, restore testing, WAF attack simulation, or an
-Azure Policy compliance review.
+Azure Policy compliance review unless dated user-provided evidence is explicitly included below.
+When a manual snapshot is supplied, explain which decisions rely on user-provided evidence,
+which claims remain unverified, and any conflicts with collector observations. Cite the snapshot
+revision and response control ID in the relevant control's existing evidence column; do not add
+duplicate control rows or change CSV columns.
 
 ### Resources in scope
 

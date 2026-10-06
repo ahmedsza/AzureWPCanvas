@@ -5,17 +5,21 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Script } from "node:vm";
 import { presentationArgs, runPresentation } from "../presentation-runner.mjs";
+import { loadManual, saveManualAnswer, writeManualSnapshot, manualPath } from "../manual-validation.mjs";
 
 const file = await readFile(new URL("../extension.mjs", import.meta.url), "utf8");
 const source = file.replace(/^import .*;\r?\n/gm, "").split("const workflowCanvas = createCanvas(")[0];
+const questions = [{ id: "MAN-01", section: "Manual", control: "Confirm business targets", evidence: "Approved SLO", suggested: true }];
+const answer = { controlId: "MAN-01", decision: "met", response: "Targets agreed", evidence: "Document BIA-v2", respondent: "Workload owner", evidenceDate: "2026-09-28" };
 async function fixture(t, { powerShell } = {}) {
     const root = await mkdtemp(path.join(tmpdir(), "waf-workflow-test-"));
     t.after(() => rm(root, { recursive: true, force: true }));
     const sends = [];
-    const api = new Function("path", "process", "mkdir", "readFile", "readdir", "rm", "stat", "writeFile", "CanvasError", "session", "presentationArgs", "runPresentation", "mockPowerShell",
+    const api = new Function("path", "process", "mkdir", "readFile", "readdir", "rm", "stat", "writeFile", "CanvasError", "session", "presentationArgs", "runPresentation", "mockPowerShell", "loadQuestions", "loadManual", "saveManualAnswer", "writeManualSnapshot", "manualPath",
         source + "\nif (mockPowerShell) runPowerShell = mockPowerShell;\nreturn { PHASES, SKILL_MILESTONES, WorkflowInstance, normalizeInput, derivePhaseState, phaseCommands, statusFor, renderHtml, matchingRunReports };"
     )(path, { cwd: () => root, env: {} }, mkdir, readFile, readdir, rm, stat, writeFile, class extends Error { constructor(code, message) { super(message); this.code = code; } },
-        { send: async (request) => { sends.push(request); return "message"; } }, presentationArgs, runPresentation, powerShell);
+        { send: async (request) => { sends.push(request); return "message"; } }, presentationArgs, runPresentation, powerShell,
+        async () => questions, loadManual, saveManualAnswer, writeManualSnapshot, manualPath);
     const instance = new api.WorkflowInstance({ instanceId: "test", input: {} });
     instance.loadedRuns = true;
     instance.ensureCurrentSubscription = async () => {};
@@ -169,10 +173,111 @@ test("client JavaScript parses and contains optional controls without workspace 
     const f = await fixture(t);
     const html = f.renderHtml();
     new Script(html.match(/<script>([\s\S]*?)<\/script>/)[1]);
+    new Script(await readFile(new URL("../manual-ui.js", import.meta.url), "utf8"));
     assert.match(html, /id="deckMode"/);
     assert.match(html, /Render changed slides/);
     assert.doesNotMatch(html, /Workspace state|renderWorkspace/);
     assert.match(html, /filter\(\(p\) => !p.optional\)/);
+});
+test("manual opt-in inserts a skippable checkpoint before assessment only", async t => {
+    const f = await fixture(t);
+    assert.equal(f.normalizeInput({}).manualValidationEnabled, false);
+    assert.equal(f.derivePhaseState({}, discovery(null), previous(), null).some(p => p.id === "manual-validation"), false);
+    const phases = f.derivePhaseState({ manualValidationEnabled: true }, discovery(null), previous(), null);
+    assert.equal(phases.find(p => p.id === "manual-validation").status, "current");
+    assert.equal(phases.find(p => p.id === "assessment").status, "pending");
+    const skipped = f.derivePhaseState({ manualValidationEnabled: true }, discovery(null), { ...previous(), manual_validation: { ok: true, skipped: true } }, null);
+    assert.equal(skipped.find(p => p.id === "assessment").status, "current");
+    assert.equal(skipped.filter(p => !p.optional).length, 8);
+});
+test("new uploaded runs opt in, save answers and reopen from disk", async t => {
+    const f = await fixture(t);
+    await f.instance.createRun({ name: "Manual test", source: "upload", manualValidationEnabled: true });
+    const runId = f.instance.currentRun.runId;
+    await f.instance.saveManual({ runId, revision: 0, answer });
+    assert.equal(f.instance.state.manual.responses["MAN-01"].response, answer.response);
+    const reopened = new f.WorkflowInstance({ instanceId: "reopened", input: {} });
+    reopened.useRun(f.instance.currentRun);
+    reopened.loadedRuns = true;
+    reopened.persistRuns = async () => {};
+    reopened.ensureCurrentSubscription = async () => {};
+    await reopened.refresh();
+    assert.equal(reopened.state.manual.revision, 1);
+    assert.equal(reopened.state.manual.responses["MAN-01"].evidenceDate, answer.evidenceDate);
+    await assert.rejects(reopened.saveManual({ runId: "wrong-run", revision: 1, answer }), /selected run changed/);
+});
+test("answer edits invalidate previous reports even when complete files remain", async t => {
+    const f = await fixture(t);
+    f.instance.input.manualValidationEnabled = true;
+    f.instance.outputs = { ...previous(), assessment: { ok: true }, display: { ok: true }, presentation: { ok: true } };
+    await f.instance.saveManual({ runId: f.instance.currentRun.runId, revision: 0, answer });
+    const phases = f.derivePhaseState(f.instance.input, discovery(true), f.instance.outputs, null);
+    assert.equal(phases.find(p => p.id === "assessment").status, "pending");
+    assert.equal(f.instance.outputs.assessment.requiresRerun, true);
+    assert.equal(f.instance.outputs.display, undefined);
+    assert.equal(f.instance.outputs.presentation, undefined);
+});
+test("manual snapshot is attached to report prompt; skipping excludes saved responses", async t => {
+    const f = await fixture(t);
+    f.instance.input.manualValidationEnabled = true;
+    await f.instance.saveManual({ runId: f.instance.currentRun.runId, revision: 0, answer });
+    const result = await f.instance.executePhase("manual-validation");
+    const snapshot = JSON.parse(await readFile(result.snapshot, "utf8"));
+    assert.equal(snapshot.responses[0].controlId, "MAN-01");
+    const prompt = f.phaseCommands(f.instance.input, discovery(null), { ...f.instance.outputs, manual_validation: result }).reviewPrompt;
+    assert.match(prompt, /manual-validation snapshot/);
+    assert.match(prompt, /claimed outcome alone is not proof/);
+    assert.match(prompt, /previous report set is stale/);
+    const skipped = await f.instance.executePhase("manual-validation", { skipManual: true });
+    assert.deepEqual(JSON.parse(await readFile(skipped.snapshot, "utf8")).responses, []);
+    assert.equal((await loadManual(f.root, f.instance.currentRun.runId)).responses["MAN-01"].response, answer.response);
+});
+test("end-to-end manual checkpoint queues exactly its saved snapshot into the review", async t => {
+    const f = await fixture(t);
+    f.instance.input = { ...f.instance.input, manualValidationEnabled: true, evidenceDir: path.join(f.root, "evidence"), reportDir: path.join(f.root, "custom-reports") };
+    f.instance.outputs = previous();
+    await mkdir(f.instance.input.evidenceDir);
+    await writeFile(path.join(f.instance.input.evidenceDir, "collection-manifest.json"), "{}");
+    await f.instance.saveManual({ runId: f.instance.currentRun.runId, revision: 0, answer });
+    await f.instance.runPhase("manual-validation");
+    const snapshot = f.instance.outputs.manual_validation.snapshot;
+    await f.instance.runPhase("assessment");
+    assert.equal(f.sends.length, 1);
+    assert.ok(f.sends[0].prompt.includes(JSON.stringify(snapshot)));
+    assert.match(f.sends[0].prompt, /custom-reports/);
+    assert.equal(f.instance.outputs.assessment.manualRevision, 1);
+    assert.equal(f.instance.outputs.assessment.manualSnapshot, snapshot);
+    assert.equal(f.instance.outputs.assessment.waitingForSkill, true);
+});
+test("manual edits are rejected during assessment, and duplicate reruns are rejected with old files present", async t => {
+    const f = await fixture(t);
+    f.instance.input.manualValidationEnabled = true;
+    f.instance.outputs = { ...previous(), manual_validation: { ok: true }, assessment: { waitingForSkill: true, requiresRerun: true } };
+    f.instance.refresh = async () => {
+        f.instance.state = { phases: f.derivePhaseState(f.instance.input, discovery(true), f.instance.outputs, null), discovered: discovery(true) };
+    };
+    await assert.rejects(f.instance.saveManual({ runId: f.instance.currentRun.runId, revision: 0, answer }), /Wait for/);
+    await assert.rejects(f.instance.runPhase("assessment"), /already running/);
+    assert.equal(f.sends.length, 0);
+});
+test("old artifacts do not complete a manual-evidence report regeneration", async t => {
+    const f = await fixture(t);
+    const dir = path.join(f.root, "reports");
+    await mkdir(dir);
+    const baseline = {};
+    for (const file of ["detailed-well-architected-review.md", "executive-summary.md", "findings.csv"]) {
+        await writeFile(path.join(dir, file), "old report");
+        const info = await stat(path.join(dir, file));
+        baseline[file] = `${info.mtimeMs}:${info.size}`;
+    }
+    f.instance.outputs.assessment = { waitingForSkill: true, requiresRerun: true, expectedReportDir: dir, baseline };
+    f.instance.refresh = async () => {};
+    await f.instance.pollSkillMilestones();
+    assert.equal(f.instance.outputs.assessment.waitingForSkill, true);
+    for (const file of Object.keys(baseline)) await writeFile(path.join(dir, file), "new report with revised manual provenance");
+    await f.instance.pollSkillMilestones();
+    assert.equal(f.instance.outputs.assessment.requiresRerun, false);
+    assert.equal(f.instance.outputs.assessment.ok, true);
 });
 test("presentation args use explicit mode and paths without shell interpolation", () => {
     const args = presentationArgs("C:\\work", "reports folder", "detailed", true);

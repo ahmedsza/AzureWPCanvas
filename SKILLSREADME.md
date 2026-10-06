@@ -114,6 +114,7 @@ Unknown context does not block the review; the reports record it as unknown rath
 | Checklist | Defaults to the skill's bundled [AzureWordPressChecklist.md](.github/skills/wordpress-waf-review/references/AzureWordPressChecklist.md). |
 | Output directory | Defaults to `Review/reports/<evidence-folder-name>-reports/`; reruns overwrite that folder rather than creating a numbered variant. |
 | Workload context | Optional, but improves assessment quality and prioritization. |
+| Manual validation | Optional run-specific snapshot supplied by the workflow. Dated supporting evidence is evaluated alongside collected JSON; claimed outcomes alone do not change a control's status. |
 | PowerPoint | Opt-in only; executive mode by default, detailed mode on request. |
 
 ## Outputs

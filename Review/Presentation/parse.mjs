@@ -120,7 +120,7 @@ export function parseReports(inputs) {
   const exe = inputs[INPUTS[0]].replace(/^\uFEFF/, ''), det = inputs[INPUTS[1]].replace(/^\uFEFF/, '');
   const scores = scoreRows(table(det, '## 2. Scoring summary'));
   const total = scores.pop();
-  requireThat(scores.length === 8 && /^Total$/i.test(total.section), 'expected eight sections and a total row');
+  requireThat(scores.length === 8 && /^Total(?:\s+\([^()]+\))?$/i.test(total?.section ?? ''), 'expected eight sections and a total row');
   const controls = [];
   for (const line of det.split(/\r?\n/)) {
     if (!/^\s*\|\s*[A-Z]{2,5}-\d+\s*\|/.test(line)) continue;
@@ -148,7 +148,12 @@ export function parseReports(inputs) {
   const overallTable = Object.fromEntries(table(exe, '## Overall posture'));
   const overall = { score: headline(overallTable['Overall score'] ?? ''), coverage: headline(overallTable['Evidence coverage'] ?? '') };
   for (const key of ['score', 'coverage']) {
-    const values = scores.slice(0, 6).map(s => s[key]);
+    // Use the counts, not already-rounded display percentages, for the mean.
+    const values = scores.slice(0, 6).map(s => {
+      const decided = s.pass + s.fail;
+      const denominator = key === 'score' ? decided : s.total - s.na;
+      return denominator ? (key === 'score' ? s.pass : decided) / denominator * 100 : null;
+    });
     const expected = values.includes(null) ? null : Math.round(values.reduce((a, b) => a + b, 0) / 6);
     requireThat(overall[key] === expected, `overall ${key} must be the six-pillar mean; undefined pillars cannot be dropped or converted to zero`);
   }

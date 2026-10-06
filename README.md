@@ -9,6 +9,8 @@ This repository is now focused on **reviewing** a WordPress on Azure App Service
 - Generate Markdown and CSV review deliverables, with an optional PowerPoint readout.
 - Open an interactive dashboard for the generated review output.
 
+**First time using the toolkit?** Follow [howtorunv2.md](howtorunv2.md) for the canvas-first walkthrough: setup, numbered workflow stages, controls, completion checks, and artifacts. [howtorun.md](howtorun.md) also covers command-line collection and detailed background/reference material.
+
 ## Repository layout
 
 ```
@@ -43,6 +45,14 @@ A review starts with a deployed WordPress environment in Azure. The environment 
 6. **Optionally generate PowerPoint.** Select Step 9 in the workflow, or run the [presentation generator](Review/Presentation/README.md) against the finished reports. Executive mode defaults to 10–15 slides; detailed mode expands findings. No second assessment is performed.
 
 Open the `waf-review-workflow` canvas for eight required steps: validate dependencies, connect scope, inventory, collect, package, extract, assess, and display. A ninth PowerPoint step is optional and never runs automatically. Start a named run, upload an existing collector ZIP, or reopen a previous run.
+
+At run creation, choose **Include optional manual validation** to add a questionnaire between
+extraction and assessment. It covers manual/process controls and unresolved evidence gaps across
+all pillars. Save answers with respondent, date, and evidence references; continue with those
+answers or skip. Responses and edit history persist locally per run in
+`Review/manual-validation/<run-id>/` (gitignored). The skill receives an immutable snapshot and
+evaluates it as user-provided evidence, not automatic proof of compliance. Editing answers marks
+existing reports stale and requires regeneration. Existing runs can use **Add manual questions**.
 
 ```mermaid
 flowchart TD
