@@ -11,3 +11,5 @@
 *.vsix
 Evidence/
 Review/manual-validation/
+Review/pre-assessment/
+Review/reports/
