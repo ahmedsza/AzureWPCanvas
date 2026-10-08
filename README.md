@@ -17,6 +17,12 @@ The project is intended to:
 
 The toolkit supports assessment and decision-making; it does not automatically modify Azure resources or replace live testing, vulnerability scanning, restore testing, or formal compliance validation.
 
+### Overview materials
+
+- [WordPress workflow architecture presentation](docs/wordpress-workflow-architecture.pptx) explains the solution architecture and workflow.
+- [Azure WordPress Canvas explainer video](docs/azure-wordpress-canvas-explainer.mp4) provides an introduction to the project and its purpose.
+- [WordPress workflow in action video](docs/wordpress-workflow-in-action.mp4) demonstrates the review workflow.
+
 # How to run a review through the canvas workflow
 
 This guide follows the **numbered steps in the WAF review workflow canvas**. You use the canvas to select scope, collect and prepare evidence, request the assessment, open the dashboard, and optionally generate PowerPoint. You do **not** copy scripts into a terminal or manually run a separate command for each stage.
